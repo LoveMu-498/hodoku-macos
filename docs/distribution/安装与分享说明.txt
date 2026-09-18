@@ -1,0 +1,40 @@
+HoDoKu · Apple Silicon 分享版
+
+适用于 M1、M2、M3 等 Apple Silicon Mac，macOS 11 或更高版本。
+此包不是 Intel 版。内置 Java，无需安装 Java、Homebrew、HarfBuzz 或 FreeType。
+
+安装
+1. 打开 DMG，将 HoDoKu 拖入 Applications（应用程序）。
+2. 如果已装有旧版，先退出旧版，再由 Finder 确认替换。
+3. 从“应用程序”打开 HoDoKu，然后推出磁盘映像。
+
+首次打开
+当前为本地临时签名版本，未经过 Apple 开发者签名与公证。
+如果系统阻止打开，请先尝试启动一次，再到“系统设置 → 隐私与安全性”
+查看 HoDoKu 的“仍要打开”选项，仅在确认来源可信后允许。
+若提示文件损坏，请先重新下载、核对 SHA-256；不要关闭系统安全保护。
+
+设置和进度
+每位用户会自动生成自己的配置，位置：
+~/Library/Application Support/HoDoKu/
+更新应用不需要删除此目录。分享包没有附带制作者的设置、历史或题目进度。
+键盘快捷键可在应用的帮助菜单查看。
+
+分享
+直接发送完整 DMG 即可；不要单独发送 Contents 文件夹或 JAR。
+随包附带 HoDoKu 源码快照、来源/修改说明及 GPL 许可。
+Java 许可在应用内 runtime/Contents/Home/legal；对应源码位置见“Java源码获取说明.txt”。
+本地完整包的 Java 对应源码在同目录文件夹内；GitHub 分离版须保留同次 Release 的
+Java 对应源码附件。转发时也应让接收者取得对应材料。
+源码快照对应构建时的工作区，包含尚未提交的功能，未包含个人配置。
+
+打不开时
+可在“终端”执行以下命令，复制输出给分享者：
+/Applications/HoDoKu.app/Contents/MacOS/HoDoKu
+
+验证下载完整性（在终端中将路径替换为实际下载位置）：
+shasum -a 256 /路径/HoDoKu-版本-AppleSilicon.dmg
+将结果与分享者提供的 SHA256SUMS.txt 比较。
+
+已验证的机器、系统和检查范围见分享包外的验证报告。
+最低系统版本由内置二进制声明决定，不代表已在每个系统版本实机测试。

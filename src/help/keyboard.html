@@ -1,0 +1,290 @@
+<!-- 
+/*
+ * Copyright (C) 2008-12  Bernhard Hobiger
+ *
+ * This file is part of HoDoKu.
+ *
+ * HoDoKu is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * HoDoKu is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with HoDoKu. If not, see <http://www.gnu.org/licenses/>.
+ */
+    Document   : keyboard_default
+    Created on : 13.12.2008, 10:34:00
+    Author     : hobiwan
+-->
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+  <head>
+    <style type="text/css" media="all">
+    <!--
+    body {
+        font-family: Arial, sans-serif;
+        font-size: 12pt;
+        line-height: 25pt;
+    }
+
+    h1 {
+        font-size: 14pt;
+        font-weight: bold;
+        /*text-align: center;
+        margin: 0 auto; */
+    }
+
+    dt {
+        font-weight: bold;
+        margin: 5px;
+    }
+
+    dd {
+        margin: 5px;
+        margin-left: 40px;
+        margin-bottom: 10px;
+    }
+    -->
+    </style>
+    <title></title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  </head>
+  <body>
+    <h1>Normal Operation</h1>
+    <dl>
+        <dt>Using the mouse (normal operation)</dt>
+        <dd>Clicking a cell selects that cell. Pressing [ctrl] or [shift] while clicking
+        selects a region of cells. Setting cells/candidates:
+        <ul>
+            <li>Double click on a candidate sets it in the cell</li>
+            <li>If a cell has only one candidate left, double click on the cell
+            sets that candidate in the cell</li>
+            <li>If filters are applied, double click on a filtered cell sets the
+            filtered candidate in the cell, if it is a Hidden Single</li>
+            <li>Double click on a candidate while pressing [ctrl] toggles the candidate</li>
+        </ul>
+        </dd>
+        <dt>Using the mouse (alternate mouse mode)</dt>
+        <dd>Region select as described above. Setting cells/candidates:
+        <ul>
+            <li>Left click a candidate sets it in the cell</li>
+            <li>If a cell has only one candidate left, left click on empty space in the cell
+            sets that candidate in the cell</li>
+            <li>If filters are applied, left click on empty space in a filtered cell sets the
+            filtered candidate in the cell, if it is a Hidden Single</li>
+            <li>Right click on a candidate eliminates the candidate, right click on empty
+            space in a cell enables the corresponding candidate</li>
+        </ul>
+        </dd>
+        <dt>Using the mouse (coloring mode)</dt>
+        <dd>Clicking a color in the status bar or the Active Cell view activates
+        coloring mode. Clicking a cell/candidate toggles the selected color for
+        that cell/candidate. Pressing [X] swaps the primary color with the secondary color.
+        Clicking the background color or pressing [esc] ends coloring mode without
+        deleting colors. Clicking the panel with the "R" deletes all colors.
+        </dd>
+		<dt>[shift][option][R][1] ... [9], [shift][option][C][1] ... [9], [shift][option][B][1] ... [9] (macOS)</dt>
+		<dd>While held, temporarily highlights the corresponding row, column, or block. Releasing
+		the digit, letter, Shift, or Option key clears the highlight immediately. Both the number row and
+		numeric keypad are supported.</dd>
+        <dt>[left], [up], [right], [down]</dt>
+        <dd>Moves the cursor (the highlighted cell).</dd>
+        <dt>[shift][left], [shift][up], [shift][right], [shift][down]</dt>
+        <dd>Expands the range of selected cells.</dd>
+        <dt>[shift][ctrl][left], [shift][ctrl][up], [shift][ctrl][right], [shift][ctrl][down]</dt>
+        <dd>If filters are applied, the cursor is moved to the next unsolved cell,
+        that contains the filtered candidate.</dd>
+        <dt>[ctrl][left], [ctrl][up], [ctrl][right], [ctrl][down]</dt>
+        <dd>Moves the cursor to the next unsolved cell.</dd>
+        <dt>[home]</dt>
+        <dd>Moves the cursor to the leftmost column.</dd>
+        <dt>[end]</dt>
+        <dd>Moves the cursor to the rightmost column.</dd>
+        <dt>[ctrl][home]</dt>
+        <dd>Moves the cursor to the topmost row.</dd>
+        <dt>[ctrl][end]</dt>
+        <dd>Moves the cursor to the bottommost row.</dd>
+        <dt>[1] ... [9]</dt>
+        <dd>Sets the value in the highlighted cell; givens (shown in black)
+        cannot be overridden.</dd>
+        <dt>[Ctrl][1] ... [Ctrl][9]</dt>
+        <dd>Toggles the candidate in the highlighted cell.</dd>
+        <dt>[blank]</dt>
+        <dd>If a filter is set (see below) toggles the filtered candidate.</dd>
+        <dt>[del], [backspace], [0]</dt>
+        <dd>Deletes value in cell (givens cannot be deleted). With no active cell selection, number,
+        delete and Enter keys leave the puzzle unchanged; the first arrow key restores the last
+        navigation anchor.</dd>
+    </dl>
+    <h1>Filters</h1>
+    <p>Filters come in two varieties: Show all allowed cells for placing a
+    certain digit (cells are green) or show all forbidden cells for
+    a digit (cells are red).</p>
+    <dl>
+        <dt>[F1] ... [F9]</dt>
+        <dd>Sets/toggles the filtered digit.</dd>
+        <dt>[shift][F1] ... [shift][F9]</dt>
+        <dd>Sets/toggles the filtered digit and switches the filter mode (allowed/forbidden).</dd>
+        <dt>[ctrl][F1] ... [ctrl][F9]</dt>
+        <dd>Adds/removes the candidate to/from the set of filtered candidates. If more than one candidate
+        is selected for filtering, either all cells are shown, that contain at least one filtered candidate ('OR'),
+        or only cells are shown, that contain all filtered candidates ('AND').</dd>
+        <dt>[alt][1] ... [alt][9] (macOS)</dt>
+        <dd>Alternative to [F1] ... [F9], using either the number row or numeric keypad.</dd>
+        <dt>[alt][ctrl][1] ... [alt][ctrl][9] (macOS)</dt>
+        <dd>Alternative to [ctrl][F1] ... [ctrl][F9] for multi-filter selection. If the macOS
+        Accessibility Zoom shortcut is enabled, the system may intercept [alt][ctrl][8].</dd>
+        <dt>[F10]</dt>
+        <dd>Highlights unsolved cells with exactly two logical candidates (XY).</dd>
+        <dt>[shift][F10]</dt>
+        <dd>Highlights unsolved cells with exactly three logical candidates (XYZ). XY and XYZ
+        filters are independent and may be used together.</dd>
+        <dt>[alt][0] / [shift][alt][0] (macOS)</dt>
+        <dd>Alternatives to [F10] / [shift][F10] for XY / XYZ, using either the number row or numeric keypad.</dd>
+        <dt>[space]</dt>
+        <dd>If a filter is active and the current cell is filtered, toggle the filtered candidate in the cell.</dd>
+        <dt>[enter]</dt>
+        <dd>If a filter is active and the current cell is filtered, set the filtered candidate in the cell.</dd>
+        <dt>[&gt;], [.]</dt>
+        <dd>If a filter is active, set the next digit.</dd>
+        <dt>[&lt;], [,]</dt>
+        <dd>If a filter is active, set the previous digit.</dd>
+    </dl>
+    <h1>Annotation tools</h1><p>Windows Ctrl / Alt / Win correspond to macOS Command / Option / Control. Control is not a Command alias on macOS.</p>
+    <dl>
+		<dt>[M] / [T] / [P] / [L] / [S]</dt>
+		<dd>Switch to Default Mouse, the last Coloring tool, Doodle, Free Chain, or Box Selection.
+		A short tap keeps the tool active; after the double-tap window closes, tap the active P, L,
+		or S again to restore its preceding tool. T enters or leaves unified Coloring (left: cell, right: candidate). Hold a key
+		to use its tool temporarily. Double-tap T, P, L, or S to clear that tool's annotation layer
+		without changing the current tool.</dd>
+        <dt>[a]/[A], [b]/[B], [c]/[C], [d]/[D], [e]/[E]</dt>
+		<dd>In unified Coloring, unmodified A/B/C/D select the first four paired groups without painting. Shift-letter and E retain their existing selected-cell coloring behavior.</dd>
+		<dt>Palette wheel / [X] / [Alt]</dt><dd>Wheel changes both colors as a pair, also with Alt (Option) held. X swaps their deep/light order; Option temporarily uses Secondary. The swap glyph shows Opt above and X below. Hiding the toolbar restores the sidebar palette. Chain and Box use Primary only; Doodle board-wheel still changes width.</dd>
+		<dt>Doodle: [A] / [B] / [C] / [D]</dt>
+		<dd>Select one of the first four paired groups, preserving the X swap orientation; Shift selects the light primary and its same-group dark secondary.</dd>
+		<dt>Doodle: [&gt;] / [&lt;]</dt>
+		<dd>Increase or decrease stroke width.</dd>
+		<dt>Free Chain: click / [space]</dt>
+		<dd>Click visible candidates to add opaque nodes. The first relation is Strong; subsequent
+		relations alternate Strong/Weak, and Space changes the next relation. Strong uses the selected
+		pair's deep color and Weak its light color.</dd>
+		<dt>Free Chain: [Shift] + click</dt>
+        <dd>Extend the last node into a group of two or three occurrences of the same digit in one box and one row or column. A translucent band as wide as the candidate disks joins members. Release Shift to continue to the next node; click any first-group member to close. Enter marks invalid links red while retaining strong/weak line styles. Edit and validate again.</dd>
+		<dt>Free Chain / Box Selection: [A] / [B] / [C] / [D] or wheel</dt>
+		<dd>Select a color group. All six groups remain available from the shared palette; these tools
+		store their own group and do not use the Secondary control.</dd>
+		<dt>Box Selection: left click / left drag / Control + left drag</dt>
+        <dd>Toggle each hit cell: remove all box colors if selected, otherwise add the current group. Dragging hits cell centers. Control only removes and never adds. The status bar counts unsolved cells and distinct candidate digits in the active group; filled cells are excluded.</dd>
+        <dt>Doodle: right drag</dt><dd>Draw an outline ellipse using the drag endpoints as its bounding rectangle, with the current brush width and color.</dd>
+        <dt>Doodle: [Win] + left/right drag</dt><dd>The deletion modifier displays a circular eraser; the wheel changes its range. Left drag cuts stroke portions along the path; right drag erases inside the rectangle on release. Outside fragments survive. Each gesture has one undo entry; Escape cancels the pending gesture.</dd>
+        <dt>Free Chain: right click / Control + left drag</dt><dd>Right click toggles the latest edge; right drag toggles every intersected edge. Editing the last edge updates the next strength; Space still toggles the next edge. Option + two right clicks selects exact endpoints to toggle; Option + Control + two left clicks deletes their edge. Any group member represents its whole node. Missing or ambiguous edges remain unchanged. Release the modifiers to cancel endpoint selection. Control + left drag retains batch deletion. Backspace or Control + right click retreats the active chain, or deletes the latest completed edge when no chain is active. Control + right drag does nothing. Shift + right click finishes a segment; Option + left click starts a new segment at that candidate. Subtle arc caps mark the start and end of the current or most recent multi-node segment, replacing its terminal arrow. A closed loop has both caps at its start. Edits are undoable. An unrendered technique selection does not intercept Box/Chain Enter. A displayed proof is frozen: Enter applies it; Esc closes it before Enter can analyze new annotations.</dd>
+		<dt>Free Chain / Box Selection: [enter]</dt>
+		<dd>First Enter analyzes the boxes or validates all authored segments as one connected chain or loop, never just the latest segment. Remove extras; disconnected, branched or conflicting input is reported. Continuous and discontinuous loops use their respective rules. A complete conclusion is previewed. Partial Box matches open the related-step browser.
+		Enter again revalidates and applies that step, then removes only the Box regions or user chain
+		used by the successful analysis. A preview or failed Apply keeps its source. Delete never applies a reasoning preview.</dd>
+		<dt>[ctrl][z] / [ctrl][y]</dt>
+		<dd>While an annotation tool is active, undo or redo only that annotation type without changing Sudoku contents.</dd>
+        <dt>[r]</dt>
+		<dd>Clear coloring, doodles, user chains, and Box regions; the corresponding annotation clear can be undone.</dd>
+		<dt>[shift][r]</dt>
+		<dd>Clear only the current annotation type.</dd>
+        <dt>[esc]</dt>
+		<dd>Cancel an analysis/preview or unfinished gesture, then return to Default Mouse; from Default Mouse it continues through the layered hint/filter reset behavior. The same priority applies while a modifier key is still held.</dd>
+    </dl>
+    <h1>Miscellaneous</h1>
+    <dl>
+        <dt>[shift][ctrl]</dt>
+        <dd>Show all possible candidates in cell with focus (only if "Options|Show all candidates"
+        is not set).</dd>
+        <dt>[shift][alt]</dt>
+        <dd>Show all possible candidates in all cells (only if "Options|Show all candidates"
+        is not set).</dd>
+    </dl>
+    <h1>Menu and Dialogs</h1>
+    <dl>
+        <dt>[ctrl][n]</dt>
+        <dd>Create new random sudoku.</dd>
+        <dt>[alt][ctrl][n] (macOS)</dt>
+        <dd>Create a new blank sudoku.</dd>
+        <dt>[ctrl][o]</dt>
+        <dd>Open puzzle file.</dd>
+        <dt>[ctrl][s]</dt>
+        <dd>Save sudoku.</dd>
+        <dt>[shift][ctrl][s]</dt>
+        <dd>Save sudoku as a new file.</dd>
+        <dt>[alt][ctrl][s] (macOS)</dt>
+        <dd>Create a savepoint.</dd>
+        <dt>[alt][ctrl][o] (macOS)</dt>
+        <dd>Restore a savepoint.</dd>
+        <dt>[ctrl][p]</dt>
+        <dd>Print sudoku.</dd>
+        <dt>[ctrl][q] (macOS)</dt>
+        <dd>Save the current session and quit.</dd>
+        <dt>[alt][x] (other systems)</dt>
+        <dd>Quit program.</dd>
+        <dt>[ctrl][z]</dt>
+        <dd>Undo.</dd>
+        <dt>[ctrl][y]</dt>
+        <dd>Redo.</dd>
+        <dt>[ctrl][shift][z]</dt>
+        <dd>Redo.</dd>
+        <dt>[ctrl][c]</dt>
+        <dd>Copy candidates to clipboard.</dd>
+        <dt>[ctrl][g]</dt>
+        <dd>Copy givens to clipboard.</dd>
+        <dt>[ctrl][v]</dt>
+        <dd>Paste sudoku from clipboard.</dd>
+        <dt>[alt][ctrl][c]</dt>
+        <dd>Copy the currently selected solution step.</dd>
+        <dt>[ctrl][r]</dt>
+        <dd>Restart game.</dd>
+        <dt>[ctrl][Enter]</dt>
+        <dd>Start the edited Sudoku as a game.</dd>
+        <dt>[ctrl][shift][p]</dt>
+        <dd>Edit Preferences on non-macOS systems.</dd>
+        <dt>[ctrl][,] (macOS)</dt>
+        <dd>Open Preferences from the HoDoKu application menu.</dd>
+        <dt>Free chain toolbar button (L)</dt>
+        <dd>The icon shows the next edge: = for strong, - for weak. Click to enter Free chain;
+        click the selected button again to switch the next relation, including before the first node.
+        Space while drawing, automatic alternation and undo/redo update the same indicator.</dd>
+        <dt>[shift][F12]</dt>
+        <dd>Open the original Mac technique menu in Current reasoning mode. One toolbar entry serves both modes;
+        use the Current reasoning checkbox to switch. Current reasoning always shows the whole-board catalog.
+        Box, chain and digit inputs only add colored relation dots, explained on hover; they do not filter or group results.
+        Activate an instance to preview, then Enter again to revalidate and apply. Switching modes or closing current mode
+        does not commit a browsed choice. Hold Option to make the popup translucent for the underlying cell preview;
+        release restores it. Searches retain enabled techniques and limits, and authored-chain validation remains independent.</dd>
+		<dt>[command][option][F12] (macOS)</dt>
+		<dd>Open the available-technique selector. Choosing a technique and closing the popup commits
+			the currently displayed original instance, such as 3/5, for subsequent F12 hints. Hold Option
+			to preview that exact step; while it is held, A-D apply the corresponding Primary palette color
+			only to the previewed cells and never to an older ordinary cell selection.</dd>
+        <dt>[alt][F12]</dt>
+        <dd>Show vague hint.</dd>
+        <dt>[ctrl][F12]</dt>
+        <dd>Show concrete hint.</dd>
+        <dt>[F12]</dt>
+        <dd>Show next step.</dd>
+        <dt>[F11]</dt>
+        <dd>Set all singles.</dd>
+        <dt>[ctrl][shift][0] (macOS)</dt>
+        <dd>Show sudoku only.</dd>
+        <dt>[ctrl][shift][s] (other systems)</dt>
+        <dd>Show sudoku only.</dd>
+        <dt>[ctrl][shift][u]</dt>
+        <dd>Show summary of steps used to solve the sudoku.</dd>
+        <dt>[ctrl][shift][o]</dt>
+        <dd>Show solution(s).</dd>
+        <dt>[ctrl][shift][a]</dt>
+        <dd>Show all possible steps for current state.</dd>
+    </dl>
+  <h2>Unified annotations</h2><dl><dt>Board Tab / Shift+F12</dt><dd>Tab searches existing boxes, chains or manual coloring regardless of the digit filter. Only without those annotations does it use the digit, XY filter or selection. Shift+F12 opens all steps with in-menu radio filters, resetting to All steps each time. Tab keeps normal focus navigation in fields and dialogs.</dd><dt>Coloring (T)</dt><dd>Left click colors a cell, right click a candidate. Both use primary color, or secondary with Option. Control-left rectangle erases cell colors by center; Control-right erases candidate colors by center. One gesture, one undo.</dd><dt>Box right click</dt><dd>Remove all box colors from an already boxed cell; otherwise add the current color.</dd><dt>Doodle right click</dt><dd>Click a visible candidate for a highlight-sized hollow circle. Right drag remains ellipse; Control-right remains eraser.</dd><dt>Chain rectangle deletion</dt><dd>Remove grouped members whose centers are inside, as well as intersected edges. A band-only hit does nothing. Invalid links are thicker red lines with their original strong/weak style.</dd></dl><p>Showing a proof fades earlier annotations once. Later annotations remain clear above it. A different proof starts a new boundary; repeating F12 for the same proof preserves it. Closing the proof restores annotations. Editing annotations preserves the displayed proof, but changing Sudoku values or candidates invalidates it.</p>
+<h2>Palette toolbar and pointer</h2><p>The six paired swatches share a compact surface. Palette controls dim and disable in M mode. The state slot shows = / - for chains or brush width for Doodle. The upper eraser clears the current tool (Shift+R); the lower all eraser clears all annotations (R), preserving puzzle values and candidates. The regular pointer has no color badge; deletion-modifier eraser cursors remain.</p><p>New Doodle right-click candidate circles follow their cell and digit across window resizing and sidebar changes. Partial erasure detaches the remaining arcs into ordinary ink; undo restores the complete anchored circle. Legacy circles and right-drag ellipses keep their existing scaling.</p></body>
+</html>

@@ -1,0 +1,14 @@
+bin/
+.settings/
+legacy/
+/build/
+/dist/
+/null.out.txt
+.DS_Store
+.codex/
+/build-backups/
+/installation-backups/
+/src.zip
+/mac-app.zip
+__pycache__/
+*.pyc

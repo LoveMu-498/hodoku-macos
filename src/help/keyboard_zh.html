@@ -1,0 +1,259 @@
+<!-- 
+/*
+ * Copyright (C) 2008-12  Bernhard Hobiger
+ *
+ * This file is part of HoDoKu.
+ *
+ * HoDoKu is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * HoDoKu is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with HoDoKu. If not, see <http://www.gnu.org/licenses/>.
+ */
+    Document   : keyboard_default
+    Created on : 13.12.2008, 10:34:00
+    Author     : hobiwan
+-->
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+  <head>
+    <style type="text/css" media="all">
+    <!--
+    body {
+        font-family: Arial, sans-serif;
+        font-size: 12pt;
+        line-height: 25pt;
+    }
+
+    h1 {
+        font-size: 14pt;
+        font-weight: bold;
+        /*text-align: center;
+        margin: 0 auto; */
+    }
+
+    dt {
+        font-weight: bold;
+        margin: 5px;
+    }
+
+    dd {
+        margin: 5px;
+        margin-left: 40px;
+        margin-bottom: 10px;
+    }
+    -->
+    </style>
+    <title></title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  </head>
+  <body>
+    <p><strong>平台按键说明：</strong>平台对应为 Windows Ctrl → Mac Command、Alt → Option、Win → Control。Mac Control 不再兼容 Command，专用于下述删除手势。</p>
+
+    <h1>基本操作</h1>
+    <dl>
+        <dt>使用鼠标（默认模式）</dt>
+        <dd>单击一个单元格可将其选中。按住 [Ctrl] 或 [Shift] 再单击，可选择一片单元格。设置单元格或候选数（Candidate）的方法：
+        <ul>
+            <li>双击候选数，可将其填入单元格。</li>
+            <li>如果单元格只剩一个候选数，双击该单元格即可填入此数。</li>
+            <li>启用筛选器（Filter）后，如果筛选出的候选数构成隐性单值（Hidden Single），双击对应单元格即可填入此数。</li>
+            <li>按住 [Ctrl] 双击候选数，可切换该候选数的启用状态。</li>
+        </ul>
+        </dd>
+        <dt>使用鼠标（替代模式）</dt>
+        <dd>区域选择方式与上文相同。设置单元格或候选数的方法：
+        <ul>
+            <li>左键单击候选数，可将其填入单元格。</li>
+            <li>如果单元格只剩一个候选数，左键单击单元格内的空白处即可填入此数。</li>
+            <li>启用筛选器后，如果筛选出的候选数构成隐性单值（Hidden Single），左键单击对应单元格的空白处即可填入此数。</li>
+            <li>右键单击候选数可将其排除；右键单击单元格内的空白处，可重新启用对应候选数。</li>
+        </ul>
+        </dd>
+        <dt>使用鼠标（着色模式）</dt>
+        <dd>单击状态栏或“当前单元格”视图中的颜色，可启用着色（Coloring）模式。单击单元格或候选数，可切换所选颜色。按 [X] 可交换主色与辅助色。单击背景色或按 [Esc] 可退出着色模式且保留染色；单击标有“R”的色块会清除全部染色。</dd>
+		<dt>[Shift][Option][R][1] ... [9]、[Shift][Option][C][1] ... [9]、[Shift][Option][B][1] ... [9]（macOS）</dt>
+		<dd>按住时分别临时高亮对应的行（Row）、列（Column）或九宫格（Block）；松开数字键、字母键、Shift 或 Option 后立即取消。主数字区和数字小键盘都可以使用。</dd>
+        <dt>[左方向键]、[上方向键]、[右方向键]、[下方向键]</dt>
+        <dd>移动光标，也就是当前高亮的单元格。</dd>
+        <dt>[Shift][左方向键]、[Shift][上方向键]、[Shift][右方向键]、[Shift][下方向键]</dt>
+        <dd>扩大所选单元格区域。</dd>
+        <dt>[Shift][Ctrl][左方向键]、[Shift][Ctrl][上方向键]、[Shift][Ctrl][右方向键]、[Shift][Ctrl][下方向键]</dt>
+        <dd>启用筛选器后，将光标移到下一个包含筛选候选数的未解单元格。</dd>
+        <dt>[Ctrl][左方向键]、[Ctrl][上方向键]、[Ctrl][右方向键]、[Ctrl][下方向键]</dt>
+        <dd>将光标移到下一个未解单元格。</dd>
+        <dt>[Home]</dt>
+        <dd>将光标移到最左列。</dd>
+        <dt>[End]</dt>
+        <dd>将光标移到最右列。</dd>
+        <dt>[Ctrl][Home]</dt>
+        <dd>将光标移到最上行。</dd>
+        <dt>[Ctrl][End]</dt>
+        <dd>将光标移到最下行。</dd>
+        <dt>[1] ... [9]</dt>
+        <dd>在当前单元格中填入数值；题目给定数（Given，显示为黑色）不能被覆盖。</dd>
+        <dt>[Ctrl][1] ... [Ctrl][9]</dt>
+        <dd>切换当前单元格中的对应候选数。</dd>
+        <dt>[空格]</dt>
+        <dd>设置筛选器后，可切换筛选出的候选数。</dd>
+        <dt>[Delete]、[Backspace]、[0]</dt>
+        <dd>删除单元格中的数值；题目给定数不能删除。没有当前选中单元格时，数字、删除和 Enter 不会修改题目；第一次按方向键只恢复上次导航锚点。</dd>
+    </dl>
+
+    <h1>筛选器（Filters）</h1>
+    <p>筛选器有两种显示方式：显示某个数字所有允许填入的单元格（绿色），或显示该数字所有禁止填入的单元格（红色）。</p>
+    <dl>
+        <dt>[F1] ... [F9]</dt>
+        <dd>设置或取消对应的筛选数字。</dd>
+        <dt>[Shift][F1] ... [Shift][F9]</dt>
+        <dd>设置或取消对应的筛选数字，同时切换筛选模式（允许/禁止）。</dd>
+        <dt>[Ctrl][F1] ... [Ctrl][F9]</dt>
+        <dd>向筛选候选数集合中添加候选数，或从中移除候选数。筛选多个候选数时，可以显示包含至少一个所选候选数的全部单元格（“或”，OR），也可以只显示同时包含全部所选候选数的单元格（“与”，AND）。</dd>
+        <dt>[Alt][1] ... [Alt][9]（macOS）</dt>
+        <dd>作为 [F1] ... [F9] 的替代操作；主数字区和数字小键盘都可以使用。</dd>
+        <dt>[Alt][Ctrl][1] ... [Alt][Ctrl][9]（macOS）</dt>
+        <dd>作为 [Ctrl][F1] ... [Ctrl][F9] 的多选替代操作。如果启用了 macOS 辅助功能中的键盘缩放快捷键，系统可能会优先截获 [Alt][Ctrl][8]。</dd>
+        <dt>[F10]</dt>
+        <dd>高亮所有仅剩两个逻辑候选数的未解单元格（XY）。</dd>
+        <dt>[Shift][F10]</dt>
+        <dd>高亮所有仅剩三个逻辑候选数的未解单元格（XYZ）。XY 与 XYZ 筛选相互独立，可以同时使用。</dd>
+        <dt>[Alt][0] / [Shift][Alt][0]（macOS）</dt>
+        <dd>分别作为 [F10] / [Shift][F10] 的 XY / XYZ 替代操作；主数字区和数字小键盘都可以使用。</dd>
+        <dt>[空格]</dt>
+        <dd>筛选器启用且当前单元格符合筛选条件时，切换单元格中的筛选候选数。</dd>
+        <dt>[Enter]</dt>
+        <dd>筛选器启用且当前单元格符合筛选条件时，将筛选候选数填入该单元格。</dd>
+        <dt>[&gt;]、[.]</dt>
+        <dd>筛选器启用时，切换到下一个数字。</dd>
+        <dt>[&lt;]、[,]</dt>
+        <dd>筛选器启用时，切换到上一个数字。</dd>
+    </dl>
+
+    <h1>标注工具（Annotations）</h1>
+    <dl>
+        <dt>[M] / [T] / [P] / [L] / [S]</dt>
+		<dd>切换到默认鼠标、上次使用的染色、涂鸦、自由链或框选工具。短按会固定工具；双击判定窗口结束后，再短按当前的 P、L 或 S 会恢复进入它之前的工具。T 进入或退出统一染色工具；左键单元格、右键候选，共用主色，Option 使用辅色。按住可临时使用、松开后恢复；双击 T、P、L 或 S 会清空对应标注层，但不改变当前工具。</dd>
+        <dt>[a]/[A]、[b]/[B]、[c]/[C]、[d]/[D]、[e]/[E]</dt>
+        <dd>统一染色模式下，单按 A／B／C／D 选择前四组配色，不直接染色。Shift 配合字母及 E 保留原有选中格染色操作。</dd>
+        <dt>配色区滚轮 / [X] / [Option]</dt><dd>滚轮整组切换主副色，按住 Option 也同步切换。X 交换同组深浅，Option 临时使用副色。工具栏切换图标上方标注 Opt、下方标注 X；隐藏工具栏后可用侧栏色盘。自由链和框选仅使用主色；涂鸦棋盘滚轮仍调笔宽。</dd>
+        <dt>涂鸦模式：[A]、[B]、[C]、[D]</dt>
+        <dd>选择前四组深浅配色，保留 X 交换后的顺序；配合 [Shift] 将浅色设为主色，深色仍为同组副色。</dd>
+        <dt>涂鸦模式：[&gt;] / [&lt;]</dt>
+        <dd>增大／减小笔触粗细。</dd>
+		<dt>自由链模式：单击 / [Space]</dt>
+		<dd>单击可见候选数添加不透明节点。第一条边默认为强链，之后强弱交替；Space 可切换下一条边。工具栏画链图标保留 L 提示，以“＝”表示下一条强链、“－”表示下一条弱链；已选中画链时再次点击图标也可切换，尚未落下第一个节点时也可预选。强链使用当前颜色组的深色，弱链使用对应浅色。</dd>
+		<dt>自由链模式：[Shift]＋单击</dt>
+        <dd>将候选加入最后一个节点，组成同数字、同宫且同行或同列的二至三成员组。等宽半透明带表示同组；松开 Shift 继续连接下一节点。点击首组任一成员可闭环。回车时无效连接标红，保留强弱线型；修改后重新验证。</dd>
+		<dt>自由链／框选模式：[A] / [B] / [C] / [D] 或滚轮</dt>
+		<dd>选择颜色组；共享调色盘仍可选择全部六组。这两个工具各自记忆颜色组，不使用副色控件。</dd>
+		<dt>框选模式：左键单击／左键拖动／Control＋左键拖动</dt>
+        <dd>对命中的每格切换：已有框色则取消所有框色，没有则加入当前颜色组。拖动以格中心命中为准；Control 只删除、不添加。底栏显示当前组的未填数格数和候选数字去重后的种数，已填确认数的格子不计入。</dd>
+        <dt>涂鸦模式：右键拖动</dt>
+        <dd>用起点和终点构成的外接矩形绘制空心圆或椭圆，沿用当前画笔颜色和粗细。</dd>
+        <dt>涂鸦模式：[Win]＋左键／右键拖动</dt>
+        <dd>按住删除修饰键时光标为圆形橡皮擦，滚轮调整范围；左键拖动擦除经过的笔画部分，右键拖出带叉矩形，松手后擦除框内部分。框外笔画保留，每次擦除均可撤销；Escape 取消尚未松手的擦除。</dd>
+        <dt>画链模式：右键切换 / Control＋左键删除</dt>
+        <dd>右键单击翻转最近画出的链边；右键拖框翻转所有命中的边，未命中则不变。修改末条后下一条强弱自动交替，Space 仍可切换下一条。Option＋右键依次点两个候选精准切换组间边；Option＋Control＋左键依次点两个候选精准删除边。组内任意成员代表整组；无边或多条同端点边时不修改。松开修饰键取消待选端点。Control＋左键保留矩形批量删除。Backspace 或 Control＋右键单击退回活动链末端；没有活动链时删除最近链段的末边。Control＋右键拖动不操作。Shift＋右键结束当前段；Option＋左键结束当前段并在点击处开启新段。多节点的当前段（结束后为最近段）以贴合候选圆的弧线标记首尾，末端不用箭头；闭环首尾弧线位于起点的出入线处。每次修改均可撤销。仅选定菜单技巧不影响框选／画链的 Enter；步骤已经显示时 Enter 应用眼前步骤，要验证后来修改的标注先 Esc 关闭步骤再 Enter。</dd>
+		<dt>自由链／框选模式：[Enter]</dt>
+		<dd>第一次回车分析框选，或将当前全部链段作为一个整体验证；不区分已完成或未完成，不会只挑最后一段。用户应删除多余链段，使它们形成一条链或环；断开、分叉或强弱冲突会提示处理，连续环和不连续环按对应规则验证。有完整结论时显示预览，再次回车才重新校验并应用。框选只匹配到部分步骤时打开相关列表。成功应用仅清除本次使用的框选或链，取消和失败保留来源；Delete 不会执行预览。</dd>
+		<dt>[Ctrl][Z] / [Ctrl][Y]</dt>
+		<dd>处于任一标注工具时，只撤销／重做当前标注类型，不修改数独填数或候选数。</dd>
+        <dt>[r]</dt>
+		<dd>清除染色、涂鸦、用户链条和框选区域；可立即按 [Ctrl][Z] 恢复对应标注。</dd>
+		<dt>[Shift][R]</dt>
+		<dd>只清除当前工具对应的标注。</dd>
+        <dt>[Esc]</dt>
+		<dd>先取消分析／预览或未完成手势，再返回默认鼠标模式；默认鼠标模式下继续沿用解题步骤与筛选的分层取消规则。即使仍按住 Shift、Control、Option 或 Command，也采用相同优先级。</dd>
+    </dl>
+
+    <h1>其他操作</h1>
+    <dl>
+        <dt>[Shift][Ctrl]</dt>
+        <dd>显示当前单元格中所有可能的候选数；仅在未启用“选项 | 显示全部候选数”时有效。</dd>
+        <dt>[Shift][Alt]</dt>
+        <dd>显示所有单元格中全部可能的候选数；仅在未启用“选项 | 显示全部候选数”时有效。</dd>
+    </dl>
+
+    <h1>菜单与对话框</h1>
+    <dl>
+        <dt>[Ctrl][N]</dt>
+        <dd>新建一道随机数独。</dd>
+        <dt>[Alt][Ctrl][N]（macOS）</dt>
+        <dd>新建一道空白数独。</dd>
+        <dt>[Ctrl][O]</dt>
+        <dd>打开题目文件。</dd>
+        <dt>[Ctrl][S]</dt>
+        <dd>保存数独。</dd>
+        <dt>[Shift][Ctrl][S]</dt>
+        <dd>将数独另存为新文件。</dd>
+        <dt>[Alt][Ctrl][S]（macOS）</dt>
+        <dd>创建存档点（Savepoint）。</dd>
+        <dt>[Alt][Ctrl][O]（macOS）</dt>
+        <dd>恢复存档点（Savepoint）。</dd>
+        <dt>[Ctrl][P]</dt>
+        <dd>打印数独。</dd>
+        <dt>[Ctrl][Q]（macOS）</dt>
+        <dd>保存当前会话并退出程序。</dd>
+        <dt>[Alt][X]（其他系统）</dt>
+        <dd>退出程序。</dd>
+        <dt>[Ctrl][Z]</dt>
+        <dd>撤销。</dd>
+        <dt>[Ctrl][Y]</dt>
+        <dd>重做。</dd>
+        <dt>[Shift][Ctrl][Z]</dt>
+        <dd>重做。</dd>
+        <dt>[Ctrl][C]</dt>
+        <dd>将候选数复制到剪贴板。</dd>
+        <dt>[Ctrl][G]</dt>
+        <dd>将题目给定数复制到剪贴板。</dd>
+        <dt>[Ctrl][V]</dt>
+        <dd>从剪贴板粘贴数独。</dd>
+        <dt>[Alt][Ctrl][C]</dt>
+        <dd>复制当前选中的解题步骤。</dd>
+        <dt>[Ctrl][R]</dt>
+        <dd>重新开始当前题目。</dd>
+        <dt>[Ctrl][Enter]</dt>
+        <dd>将编辑中的数独开始为游戏。</dd>
+        <dt>[Ctrl][Shift][P]</dt>
+        <dd>在非 macOS 系统中编辑偏好设置。</dd>
+        <dt>[Ctrl][,]（macOS）</dt>
+        <dd>从 HoDoKu 系统应用菜单打开偏好设置。</dd>
+        <dt>[Shift][F12]</dt>
+        <dd>打开原 Mac 技巧菜单并进入“当前思路”。工具栏只有一个菜单入口，菜单内通过“当前思路”切换按钮选择模式。当前思路固定显示全盘结果，不按框选、画链或数字分组筛选；来源以固定彩色点标记实际交集：蓝色框选、紫色画链、橙色选中单元格、绿色候选数字；多种来源重合时并列显示。顶部图例及悬停提示解释含义，实例导航显示当前实例的标记。明确选定实例后按 Enter 预览，再按 Enter 应用；切换模式、Escape 或关闭当前思路列表不会提交浏览中的选择。按住 Option 时菜单本体半透明，便于看清后方预览格，松开恢复。搜索继续遵循已启用技巧及计算限制，用户链验证不依赖目录中有相同链。</dd>
+		<dt>[Command][Option][F12]（macOS）</dt>
+		<dd>打开可用技巧列表。选中技巧后关闭下拉列表，会将当前显示的原始实例（例如 3/5）保存为后续 F12 提示的精确步骤。按住 Option 可预览该步骤；此时按 A–D 会使用对应主色，只给预览中的单元格染色，绝不会作用于此前的普通单元格选区。</dd>
+        <dt>[Alt][F12]</dt>
+        <dd>显示模糊提示。</dd>
+        <dt>[Ctrl][F12]</dt>
+        <dd>显示具体提示。</dd>
+        <dt>[F12]</dt>
+        <dd>显示下一步解法。</dd>
+        <dt>[F11]</dt>
+        <dd>填入所有单值（Singles）。</dd>
+        <dt>[Ctrl][Shift][0]（macOS）</dt>
+        <dd>只显示数独盘面。</dd>
+        <dt>[Ctrl][Shift][S]（其他系统）</dt>
+        <dd>只显示数独盘面。</dd>
+        <dt>[Ctrl][Shift][U]</dt>
+        <dd>显示解题过程中所用技巧的摘要。</dd>
+        <dt>[Ctrl][Shift][O]</dt>
+        <dd>显示一个或多个答案。</dd>
+        <dt>[Ctrl][Shift][A]</dt>
+        <dd>显示当前局面中所有可用的解题步骤。</dd>
+    </dl>
+  <h2>统一标注操作</h2><dl>
+<dt>棋盘焦点：[Tab] / [Shift][F12]</dt><dd>Tab 仅查看当前思路：已有框选、画链或手动染色时关联这些标注，不再受当前数字限制；没有这些标注时，才按当前数字、XY 筛选或选中格查找。Shift+F12 查看全盘步骤，可用菜单内单选按钮筛选，每次打开恢复全部。输入框和对话框中的 Tab 保留焦点导航。</dd>
+<dt>染色：[Control]＋左／右键拖框（macOS）</dt><dd>左框按单元格中心清除所有单元格颜色，右框按候选中心清除所有候选颜色；一次操作一次撤销，Escape 取消。</dd>
+<dt>框选：右键轻点</dt><dd>有任意颜色框时取消该格所有框；没有时加入当前颜色组。左键单击或拖动切换框选，Control 左框只删除。</dd>
+<dt>涂鸦：右键轻点候选</dt><dd>在候选中心画候选高亮大小的空心圆，Option 使用辅色；右键拖动仍画椭圆，Control 右键仍擦除。</dd>
+<dt>画链：Control 框删组成员</dt><dd>候选中心在框内则移出组，同时删除命中的链边；仅穿组带无动作。剩一成员退为普通节点。错误链边使用加粗红色并保留实虚线。</dd>
+</dl><p>步骤显示会把此前的标注统一淡化，之后新增或修改的标注保持清晰；显示另一个步骤时重新划分，淡化不会叠加，重复 F12 显示同一步骤不重置分界。步骤作为独立快照保留，研究标注不会取消它；盘面数值或候选改变仍会使它失效。</p>
+<h2>工具栏配色与鼠标</h2><p>六组配色紧密排列。M 模式下配色区淡化并停用；画链状态位显示 = / -，涂鸦状态位显示粗细。上方橡皮擦只清当前工具（Shift+R），下方 all 橡皮擦清全部标注（R），均不修改题目数值或候选。普通鼠标不再带颜色角标；删除修饰键的橡皮擦光标保留。</p><p>涂鸦模式右键单击候选数生成的完整圆圈会跟随该数字，窗口缩放和侧栏变化不会使它偏移。擦去部分后，剩余弧线恢复为普通涂鸦；撤销可恢复完整圈的定位。已有旧圈及右键拖动的椭圆保持原缩放方式。</p></body>
+</html>
