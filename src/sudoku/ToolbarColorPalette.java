@@ -10,7 +10,7 @@ final class ToolbarColorPalette extends JPanel {
     private final JButton primary, secondary, swap;
     private final JButton clearCurrent, clearAll;
     private final JPanel colorGroup;
-    private final JLabel modeState;
+    private final JButton modeState;
     private final JToggleButton[] groups = new JToggleButton[6];
 
     ToolbarColorPalette(CellZoomPanel owner, UIColorPalette actions) {
@@ -59,7 +59,10 @@ final class ToolbarColorPalette extends JPanel {
             colorGroup.add(button);
         }
         add(colorGroup);
-        modeState = new JLabel(new ModeStateIcon());
+        modeState = button(new ModeStateIcon(), 30, "涂鸦粗细");
+        modeState.addActionListener(e -> {
+            if (owner.isDoodle() && owner.annotationBoard() != null) owner.annotationBoard().cycleDoodleWidthByClick();
+        });
         modeState.setPreferredSize(new Dimension(30, 32));
         add(modeState);
         JPanel erasers = new JPanel(new GridLayout(2, 1, 0, 0));
@@ -79,8 +82,11 @@ final class ToolbarColorPalette extends JPanel {
         MouseWheelListener wheel = e -> {
             int forbidden = InputEvent.SHIFT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK
                     | InputEvent.META_DOWN_MASK | InputEvent.ALT_GRAPH_DOWN_MASK;
-            if (!owner.isDefaultMouse() && (e.getModifiersEx() & forbidden) == 0) {
-                owner.cyclePaletteColor(e.getWheelRotation(), false);
+            if (owner.isDoodle() && (e.getModifiersEx() & (forbidden | InputEvent.ALT_DOWN_MASK)) == InputEvent.META_DOWN_MASK) {
+                owner.annotationBoard().cycleDoodleWidth(e.getPreciseWheelRotation(), e.getWhen());
+                e.consume();
+            } else if (!owner.isDefaultMouse() && (e.getModifiersEx() & forbidden) == 0) {
+                owner.cyclePaletteColor(e.getPreciseWheelRotation());
                 e.consume();
             }
         };
@@ -118,8 +124,9 @@ final class ToolbarColorPalette extends JPanel {
         SudokuPanel board = owner.annotationBoard();
         String state = owner.isFreeChain() && board != null
                 ? (board.isNextUserChainStrong() ? "下一条：实线强链（=）" : "下一条：虚线弱链（-）")
-                : owner.isDoodle() && board != null ? "涂鸦粗细：" + (board.getDoodleWidthIndex() + 1) + " / 4（< / >）"
+                : owner.isDoodle() && board != null ? "涂鸦粗细：" + (board.getDoodleWidthIndex() + 1) + " / 4（点击循环；Command+滚轮或 < / > 调整）"
                 : "当前模式无附加笔触状态";
+        modeState.setEnabled(owner.isDoodle());
         modeState.setToolTipText(state);
         modeState.getAccessibleContext().setAccessibleName(state);
         repaint();

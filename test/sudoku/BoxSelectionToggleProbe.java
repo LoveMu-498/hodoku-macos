@@ -74,9 +74,27 @@ public final class BoxSelectionToggleProbe {
                 int[] counts=panel.getBoxReasoningCounts(1);
                 require(counts[0]==2 && counts[1]==3, "ALS union must be 2 cells / 3 digits, excluding filled cell");
                 Field status = MainFrame.class.getDeclaredField("statusLabelCellSelection");status.setAccessible(true);
+                require(panel.getInspectedBoxGroup()==-1, "counts must be hidden by default");
+                click(0,3,0);
+                require(panel.getInspectedBoxGroup()==1, "right hit inspects group");
                 String text=((JLabel)status.get(frame)).getText();
                 require(text.contains("B") && text.contains("2") && text.contains("3"), "visible status counts: "+text);
-                require(panel.getStep()==null, "left selection must not analyze");
+                require(panel.getStep()==null, "inspection must not analyze");
+                SudokuSet footprint=panel.getBoxReasoningFootprint();
+                click(0,3,InputEvent.CTRL_DOWN_MASK);
+                require(footprint.equals(panel.getBoxReasoningFootprint()), "Control-right cannot edit boxes");
+                panel.getCellZoomPanel().selectPaletteGroup(0);
+                require(panel.getInspectedBoxGroup()==-1, "palette change hides counts");
+                click(20,3,0);
+                require(panel.getInspectedBoxGroup()==-1, "empty current group miss does nothing");
+                click(0,3,0);
+                require(panel.getInspectedBoxGroup()==1 && panel.getActiveBoxReasoningGroup()==0, "hit group overrides current color without changing it");
+                click(20,1,0);
+                require(panel.getInspectedBoxGroup()==-1, "left edit hides counts");
+                click(30,3,0);
+                require(panel.getInspectedBoxGroup()==0, "miss falls back to nonempty current group");
+                panel.setAnnotationTool(AnnotationTool.DEFAULT_MOUSE);
+                require(panel.getInspectedBoxGroup()==-1, "leaving box tool hides counts");
                 System.out.println("Box toggle/preview/Control/history/ALS distinct candidate counts passed: "+text);
             } catch(Exception error) { throw new RuntimeException(error); }
             finally { if(frame!=null)frame.dispose(); }

@@ -59,6 +59,12 @@ class BundleAuditTest(unittest.TestCase):
         self.assertFalse(result['passed'])
         self.assertTrue(any('external symlink' in e for e in result['errors']))
 
+    def test_missing_sharing_helper_is_rejected(self):
+        result = module.audit(self.root, 'arm64', False)
+        self.assertFalse(result['passed'])
+        self.assertIn('Missing bundle resource: Contents/MacOS/HoDoKuShare', result['errors'])
+        self.assertIn('Not executable: Contents/MacOS/HoDoKuShare', result['errors'])
+
     def test_wrong_architecture_is_rejected(self):
         self.command('clang', '-arch', 'x86_64', '-dynamiclib', str(self.root / 'lib.c'),
                      '-o', str(self.root / 'lib/intel-only.dylib'))

@@ -1120,6 +1120,7 @@ public class SudokuStepFinder {
 	 * @return
 	 */
 	public List<Als> getAlses(boolean onlyLargerThanOne) {
+        initialize(); // Also support direct, read-only ALS requests before any solving pass.
 		if (onlyLargerThanOne) {
 			if (alsesOnlyLargerThanOneStepNumber == stepNumber) {
 				return alsesOnlyLargerThanOne;

@@ -107,7 +107,7 @@ def audit(root, arch, runtime_only=False):
                     'Contents/app/HoDoKu.cfg', 'Contents/app/Hodoku.jar',
                     'Contents/runtime/Contents/Home/lib/modules',
                     'Contents/runtime/Contents/Home/legal/java.base/LICENSE',
-                    'Contents/runtime/Contents/Home/bin/java']
+                    'Contents/runtime/Contents/Home/bin/java', 'Contents/MacOS/HoDoKuShare']
         for item in required:
             if not (root / item).is_file():
                 error(f'Missing bundle resource: {item}')
@@ -120,7 +120,7 @@ def audit(root, arch, runtime_only=False):
                 error(f'Info.plist minimum {declared} is below binary minimum {minimum}')
             if re.search(r'/Users/|/opt/|/usr/local/|JAVA_HOME|JDK_HOME', json.dumps(plist)):
                 error('Machine-specific bundle configuration: Contents/Info.plist')
-        for item in ('Contents/MacOS/HoDoKu', 'Contents/runtime/Contents/Home/bin/java'):
+        for item in ('Contents/MacOS/HoDoKu', 'Contents/runtime/Contents/Home/bin/java', 'Contents/MacOS/HoDoKuShare'):
             if not os.access(root / item, os.X_OK):
                 error(f'Not executable: {item}')
         for item in ('Contents/app/HoDoKu.cfg', 'Contents/app/.jpackage.xml'):
@@ -138,6 +138,7 @@ def audit(root, arch, runtime_only=False):
                     if item not in z.namelist():
                         error(f'Missing JAR resource: {item}')
         try:
+            run('/usr/bin/codesign', '--verify', '--strict', str(root / 'Contents/MacOS/HoDoKuShare'))
             run('/usr/bin/codesign', '--verify', '--deep', '--strict', str(root))
         except subprocess.CalledProcessError as ex:
             error('Signature verification failed: ' + ex.output.strip())

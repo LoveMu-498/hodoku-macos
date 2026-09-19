@@ -17,7 +17,7 @@ def audit(files, root):
     findings = []
     for path in files:
         name = str(path.relative_to(root))
-        if path.name in PRIVATE_NAMES or path.name.startswith('.env.') or path.suffix in ('.pem', '.key', '.p12', '.pfx'):
+        if path.name in PRIVATE_NAMES or path.name.startswith('.env.') or path.suffix in ('.pem', '.key', '.p12', '.pfx', '.hrep', '.checkpoint'):
             findings.append((name, 0, 'private-file'))
         try:
             content = path.read_text()

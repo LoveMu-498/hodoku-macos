@@ -130,6 +130,7 @@ build_app() {
     require_tool iconutil
     require_tool codesign
     require_tool python3
+    require_tool xcrun
 
     local selected_jdk
     selected_jdk="$(java -XshowSettings:properties -version 2>&1 | sed -n 's/^[[:space:]]*java.home = //p')"
@@ -179,6 +180,9 @@ build_app() {
 		NativeReasoningMatcherProbe \
 		CurrentReasoningProbe \
 		NativeReasoningLibraryProbe \
+		GroupedChainProbe \
+		AlsManualChainProbe \
+		ChainTextCodecProbe \
 		OptionsPersistenceProbe \
         PairedPaletteInvariantProbe \
 		PuzzleHistoryProbe \
@@ -250,6 +254,9 @@ build_app() {
     /usr/libexec/PlistBuddy \
         -c "Set :LSMinimumSystemVersion 11.0" \
         "$APP_BUNDLE/Contents/Info.plist"
+    /usr/bin/xcrun clang -isysroot "$(/usr/bin/xcrun --sdk macosx --show-sdk-path)" -fobjc-arc -arch arm64 -mmacosx-version-min=11.0 -framework Cocoa \
+        "$SRC_DIR/native/ReplayShare.m" -o "$APP_BUNDLE/Contents/MacOS/HoDoKuShare"
+    codesign --force --sign - "$APP_BUNDLE/Contents/MacOS/HoDoKuShare"
     codesign --force --sign - "$APP_BUNDLE"
     codesign --verify --deep --strict "$APP_BUNDLE"
     python3 "$ROOT_DIR/script/audit_macos_bundle.py" "$APP_BUNDLE" \

@@ -196,6 +196,52 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			.getString("MainFrame.text_file_ext");
 	private String ssFileExt = java.util.ResourceBundle.getBundle("intl/MainFrame").getString("MainFrame.ss_file_ext");
 	private MessageFormat formatter = new MessageFormat("");
+	private ReplayController replayController;
+	public ReplayController getReplayController() { return replayController; }
+    java.awt.Component replayArea() { return outerSplitPane; }
+    void restoreReplayEditingMode() { setPlay(false); }
+    private String pendingChainPaste;
+    private long pendingChainPasteAt;
+    private String pendingChainBoard;
+    private javax.swing.Timer pendingChainPasteTimer;
+
+    private void clearPendingChainPaste() {
+        pendingChainPaste=null;pendingChainBoard=null;
+        if(pendingChainPasteTimer!=null){pendingChainPasteTimer.stop();pendingChainPasteTimer=null;}
+    }
+
+    private void armChainPaste(String text) {
+        clearPendingChainPaste();pendingChainPaste=text;pendingChainPasteAt=System.nanoTime();
+        pendingChainBoard=TechniqueStepCatalog.createSignature(sudokuPanel.getSudoku());
+        pendingChainPasteTimer=new javax.swing.Timer(100,event->{
+            try {
+                String current=(String)Toolkit.getDefaultToolkit().getSystemClipboard().getData(DataFlavor.stringFlavor);
+                if(!text.equals(current)||System.nanoTime()-pendingChainPasteAt>3000000000L
+                        ||!pendingChainBoard.equals(TechniqueStepCatalog.createSignature(sudokuPanel.getSudoku())))clearPendingChainPaste();
+            }catch(Exception unavailable){clearPendingChainPaste();}
+        });pendingChainPasteTimer.start();
+    }
+
+    boolean importChainText(String text) {
+        ChainTextCodec.Document document=ChainTextCodec.parse(text);
+        if(document==null){clearPendingChainPaste();return false;}
+        if(!document.matches(sudokuPanel.getSudoku())){
+            boolean repeated=text.equals(pendingChainPaste)&&System.nanoTime()-pendingChainPasteAt<=3000000000L
+                    &&TechniqueStepCatalog.createSignature(sudokuPanel.getSudoku()).equals(pendingChainBoard);
+            if(!repeated){armChainPaste(text);announceStatus("MainFrame.chainText.mismatch");return true;}
+            clearPendingChainPaste();
+            GuiState saved=new GuiState(sudokuPanel,sudokuPanel.getSolver(),solutionPanel);
+            saved.setIncludeAnnotations(true);saved.get(true);saved.setName("Before chain paste");saved.setTimestamp(new Date());
+            savePoints.add(saved);
+            StringBuilder values=new StringBuilder(81);for(int v:document.board().getValues())values.append(v);
+            if(!setPuzzle(values.toString(),true,document.board())){setState(saved);return true;}
+        }else clearPendingChainPaste();
+        sudokuPanel.showImportedChainText(document);
+        setHintText(document.text());
+        announceStatus(document.hasConclusion()?"MainFrame.chainText.preview":"MainFrame.chainText.temporary");
+        OperationSoundPlayer.play(OperationSoundPlayer.Sound.PASTE);fixFocus();return true;
+    }
+
 	private List<GuiState> savePoints = new ArrayList<GuiState>(); // container for savepoints
 	// private GameMode mode = GameMode.PLAYING;
 	private boolean changingFullScreenMode = false;
@@ -243,13 +289,17 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	private final KeyEventDispatcher annotationKeyDispatcher = new KeyEventDispatcher() {
 		@Override
 		public boolean dispatchKeyEvent(KeyEvent event) {
+            java.awt.Component source = event.getComponent();
+            java.awt.Window enteredWindow = source instanceof java.awt.Window ? (java.awt.Window) source
+                    : source == null ? null : SwingUtilities.getWindowAncestor(source);
+            if (replayController != null && replayController.isViewing() && enteredWindow == MainFrame.this)
+                return replayController.viewer().handleKeyEvent(event);
 			if ((event.getID() != KeyEvent.KEY_PRESSED && event.getID() != KeyEvent.KEY_RELEASED
 					&& event.getID() != KeyEvent.KEY_TYPED)
 					|| event.isConsumed() || sudokuPanel == null) {
 				return false;
 			}
-			java.awt.Component source = event.getComponent();
-            java.awt.Window enteredWindow = source == null ? null : SwingUtilities.getWindowAncestor(source);
+
             if ((source == MainFrame.this || enteredWindow == MainFrame.this || currentReasoningMenu != null && currentReasoningMenu.isVisible())
                     && event.getKeyCode() == KeyEvent.VK_ENTER && event.getModifiersEx() == 0) {
                 if (event.getID() == KeyEvent.KEY_RELEASED) reasoningEnterDown = false;
@@ -441,6 +491,8 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	private javax.swing.JMenuItem copyPmGridWithStepMenuItem;
 	private javax.swing.JMenuItem copySSMenuItem;
 	private javax.swing.JMenuItem createSavePointMenuItem;
+    private javax.swing.JMenuItem viewReplayMenuItem;
+    private javax.swing.JMenuItem replayLibraryMenuItem;
 	private javax.swing.JMenu fileMenu;
 	private javax.swing.JMenuItem printMenuItem;
 	private javax.swing.JMenuItem extendedPrintMenuItem;
@@ -824,6 +876,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			restoreLastSession();
 		}
 		projectAnnotationPaletteForCurrentTool();
+		replayController = new ReplayController(this, sudokuPanel, statusLinePanel, launchFile == null);
 
 		fixFocus();
 
@@ -1045,6 +1098,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	}
 
 	void onDragDropFile(File[] files) {
+        if (replayController != null && replayController.isViewing()) return;
 
 		if (files.length == 1 && files[0].exists() && files[0].canRead() && files[0].isFile()) {
 
@@ -1069,8 +1123,8 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		int r = sudokuPanel.getActiveRow() + 1;
 		int c = sudokuPanel.getActiveCol() + 1;
 		
-        if (sudokuPanel.getAnnotationTool() == AnnotationTool.BOX_SELECTION) {
-            int group = sudokuPanel.getActiveBoxReasoningGroup();
+        if (sudokuPanel.getInspectedBoxGroup() >= 0) {
+            int group = sudokuPanel.getInspectedBoxGroup();
             int[] counts = sudokuPanel.getBoxReasoningCounts(group);
             statusLabelCellSelection.setText(java.text.MessageFormat.format(
                     ResourceBundle.getBundle("intl/MainFrame").getString("MainFrame.box.alsCounts"),
@@ -2398,6 +2452,16 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			}
 		});
 		puzzleMenu.add(restoreSavePointMenuItem);
+        viewReplayMenuItem = new javax.swing.JMenuItem(ReplayText.text("viewCurrent"));
+        viewReplayMenuItem.addActionListener(e -> {
+            if (replayController != null) replayController.openViewer(replayController.session());
+        });
+        puzzleMenu.add(viewReplayMenuItem);
+        replayLibraryMenuItem = new javax.swing.JMenuItem(ReplayText.text("library") + "…");
+        replayLibraryMenuItem.addActionListener(e -> {
+            if (replayController != null) replayController.openLibrary();
+        });
+        puzzleMenu.add(replayLibraryMenuItem);
 		puzzleMenu.add(new javax.swing.JPopupMenu.Separator());
 		
 		resetCandidatesMenuItem.setText(bundle.getString("MainFrame.resetCandidatesMenuItem.text"));
@@ -2834,6 +2898,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			setPlay(true);
 			check();
 			fixFocus();
+			if (replayController != null) replayController.startNewAttempt();
 		}
 	}
 
@@ -2846,6 +2911,13 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	}
 
 	private void copyPmGridWithStepMenuItemActionPerformed(java.awt.event.ActionEvent evt) {
+        String chainText=sudokuPanel.copyChainText();
+        if(chainText!=null){
+            try{Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(chainText),null);
+                OperationSoundPlayer.play(OperationSoundPlayer.Sound.COPY);
+            }catch(IllegalStateException busy){Logger.getLogger(getClass().getName()).log(Level.WARNING,"Clipboard busy",busy);}
+            return;
+        }
 		SolutionStep activeStep = sudokuPanel.getStep();
 		if (activeStep == null) {
 			JOptionPane.showMessageDialog(
@@ -2935,6 +3007,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			clearSavePoints();
 			sudokuFileName = null;
 			setTitleWithFile();
+			if (replayController != null) replayController.startNewAttempt();
 			check();
 		}
 		
@@ -3203,6 +3276,9 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			return;
 		}
 		if (hintTarget) {
+            if(importChainText(content))return;
+            // Malformed chain payloads are atomic no-ops; ordinary explanatory text keeps its established behavior.
+            if(content.contains("Chain:") || content.contains("=>") || content.matches("(?s).*\\([1-9]\\)r[1-9]c[1-9].*"))return;
 			importExternalHintText(content);
 			OperationSoundPlayer.play(OperationSoundPlayer.Sound.PASTE);
 		} else {
@@ -3254,6 +3330,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 
 	@Override
 	public void dispose() {
+        clearPendingChainPaste();
 		if (currentReasoningMenu != null) currentReasoningMenu.dispose();
 		if (sudokuPanel != null) sudokuPanel.shutdownReasoning();
 		shutdownTechniqueScanning();
@@ -3355,6 +3432,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 							bundle.getString("MainFrame.appearance.restartUnavailable"),
 							bundle.getString("MainFrame.appearance.title"),
 							JOptionPane.WARNING_MESSAGE);
+                    if (replayController != null) replayController.cancelQuit();
 					return;
 				}
 				if (nativeRequest != null) {
@@ -3379,7 +3457,8 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 					}
 				} else {
 					relaunchAfterQuit = false;
-					if (nativeRequest != null) nativeRequest.cancel();
+					if (replayController != null) replayController.cancelQuit();
+                    if (nativeRequest != null) nativeRequest.cancel();
 				}
 				return;
 			}
@@ -3408,6 +3487,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	}
 
 	private void saveApplicationState() throws IOException {
+        if (replayController != null) replayController.prepareQuit();
 		saveWindowStateInOptions();
 		SessionSnapshot snapshot = new SessionSnapshot();
 		GuiState state = new GuiState(sudokuPanel, sudokuPanel.getSolver(), solutionPanel);
@@ -3425,6 +3505,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		snapshot.setPreviouslySolved(completionTransition.wasPreviouslySolved());
 		sessionStore.save(snapshot);
 		Options.getInstance().writeOptionsSafely();
+        if (replayController != null) replayController.completeQuit();
 	}
 
 	private void restoreLastSession() {
@@ -3481,6 +3562,64 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		}
 	}
 
+    /** Reconcile an abnormal replay recovery as one complete attempt, without puzzle import. */
+    /** Preserve live native state if a branch installation fails before commit. */
+    void installReplayBranch(ReplaySession branch) {
+        GuiState previous=new GuiState(sudokuPanel,sudokuPanel.getSolver(),solutionPanel);previous.setIncludeAnnotations(true);previous.get(true);
+        List<GuiState> previousPoints=new ArrayList<GuiState>(savePoints);CompletionTransition previousCompletion=completionTransition.copy();
+        String previousFile=sudokuFileName;int previousType=sudokuFileType;boolean previousInput=isInputMode();
+        try{restoreReplayAttempt(branch);}catch(RuntimeException failure){
+            sessionRestoreInProgress=true;
+            try{setState(previous);savePoints=previousPoints;completionTransition.restore(previousCompletion);sudokuFileName=previousFile;sudokuFileType=previousType;setTitleWithFile();setPlay(!previousInput);}
+            catch(RuntimeException rollback){failure.addSuppressed(rollback);}finally{sessionRestoreInProgress=false;}
+            throw failure;
+        }
+    }
+
+    void restoreReplayAttempt(ReplaySession recovered) {
+        sessionRestoreInProgress=true;
+        try{
+            ReplayBoard board=recovered.last().board;
+            int[] values=board.values();boolean[] fixed=board.fixed();StringBuilder clues=new StringBuilder(81);
+            for(int cell=0;cell<81;cell++)clues.append(fixed[cell]?values[cell]:0);
+            Sudoku2 definition=new Sudoku2();definition.setSudoku(clues.toString());
+            definition.setLevel(Options.getInstance().getDifficultyLevels()[DifficultyType.EASY.ordinal()]);definition.setScore(0);
+            int solutions=generator.SudokuGeneratorFactory.getDefaultGeneratorInstance().getNumberOfSolutions(definition,1);
+            definition.setStatus(solutions);definition.setStatusGivens(solutions);
+            sudokuPanel.getSolver().setSudoku(definition.clone());
+            if(solutions==1)sudokuPanel.getSolver().solve();
+            Sudoku2 solvedDefinition=sudokuPanel.getSolver().getSudoku();
+            definition.setLevel(solvedDefinition.getLevel());definition.setScore(solvedDefinition.getScore());
+            GuiState state=recoveredReplayState(board,definition);
+            setState(state);
+            clearSavePoints();
+            // Rebuild only durable markers owned by this exact replay. Never reuse a
+            // previous clean attempt's similarly named or same-givens savepoint list.
+            List<ReplayFrame> recoveredFrames=recovered.frames();
+            for(ReplayBookmark marker:recovered.bookmarks()){
+                if(marker.frameIndex<0||marker.frameIndex>=recoveredFrames.size())continue;
+                ReplayBoard marked=recoveredFrames.get(marker.frameIndex).board;
+                if(!board.samePuzzle(marked))continue;
+                GuiState point=recoveredReplayState(marked,definition);
+                point.setName(marker.name);point.setTimestamp(new java.util.Date(marker.wallTimeMillis));savePoints.add(point);
+            }
+            sudokuFileName=null;setTitle(VERSION);
+            completionTransition.begin(solutions==1,false);
+            resetSelectedHintTechnique();
+            if(recovered.initialAnnotations().length>0)try{sudokuPanel.restoreReplayAnnotations(recovered.initialAnnotations());}catch(IOException e){throw new IllegalArgumentException("Invalid replay annotations",e);}
+        }finally{sessionRestoreInProgress=false;}
+    }
+    private GuiState recoveredReplayState(ReplayBoard board,Sudoku2 definition){
+        Sudoku2 restored=board.toSudoku();restored.setStatus(definition.getStatus());restored.setStatusGivens(definition.getStatusGivens());
+        restored.setInitialState(definition.getInitialState());restored.setLevel(definition.getLevel());restored.setScore(definition.getScore());
+        if(definition.isSolutionSet())restored.setSolution(definition.getSolution().clone());
+        GuiState state=new GuiState(sudokuPanel,sudokuPanel.getSolver(),solutionPanel);
+        sudokuPanel.getSolver().getState(state,true);state.setSudoku(restored);state.setIncludeAnnotations(true);
+        state.setTitels(java.util.Collections.singletonList("恢复"));
+        state.setTabSteps(java.util.Collections.singletonList(state.getSteps()));
+        return state;
+    }
+
 	/** Projects the active tool's persisted owner state into the one shared palette UI. */
 	private void projectAnnotationPaletteForCurrentTool() {
 		if (cellZoomPanel == null) {
@@ -3492,6 +3631,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	}
 
 	void sudokuStateChanged() {
+        clearPendingChainPaste();
 		sudokuPanel.reasoningBoardChanged();
 		sudokuPanel.clearTechniquePreviewCells();
 		resetResolvedSelectedHintStep();
@@ -3660,6 +3800,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				return;
 			}
 		}
+		if (replayController != null) replayController.beginEditing(true);
 		archiveCurrentPuzzleInHistory();
 		sudokuPanel.setSudoku((String) null);
 		sudokuPanel.checkProgress();
@@ -3675,6 +3816,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	}
 
 	private void spielEditierenMenuItemActionPerformed(java.awt.event.ActionEvent evt) {
+		if (replayController != null) replayController.beginEditing(false);
 		resetResultPanels();
 		sudokuPanel.setNoClues();
 		sudokuPanel.checkProgress();
@@ -3698,6 +3840,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		}
 		
 		setPlay(true);
+		if (replayController != null) replayController.finishEditing();
 	}
 
 	private void resetSpielMenuItemActionPerformed(java.awt.event.ActionEvent evt) {
@@ -3717,6 +3860,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			setPlay(true);
 			check();
 			fixFocus();
+			if (replayController != null) replayController.startNewAttempt();
 		}
 	}
 
@@ -3810,14 +3954,19 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	private void historyMenuItemActionPerformed(java.awt.event.ActionEvent evt) {
 		
 		GuiState state = new GuiState(sudokuPanel, sudokuPanel.getSolver(), solutionPanel);
+		state.setIncludeAnnotations(true);
 		state.get(true);
 		CompletionTransition savedCompletionTransition = completionTransition.copy();
+		if (replayController != null) { replayController.capture("manual", ReplayText.text("manual")); replayController.suspend(); }
+        boolean confirmed=false;
+        try {
 		HistoryDialog dlg = new HistoryDialog(this, true);
 		dlg.setVisible(true);
 		String puzzle = dlg.getSelectedPuzzle();
 		PuzzleHistoryEntry selectedEntry = dlg.getSelectedEntry();
 		
 		if (puzzle != null) {
+            confirmed=true;
 			if (dlg.isDoubleClicked()) {
 				// everything is already initialized, so don't do anything
 			} else {
@@ -3832,6 +3981,8 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			completionTransition.restore(savedCompletionTransition);
 		}
 		
+        } finally { if (replayController != null) replayController.resume(); }
+        if (confirmed && replayController != null) replayController.startNewAttempt();
 		state = null;
 	}
 
@@ -3851,23 +4002,29 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			state.setName(name);
 			state.setTimestamp(new Date());
 			savePoints.add(state);
+			if (replayController != null) {
+				replayController.createSavePointMarker(name);
+				replayController.showRetentionFailure(ReplayText.text("savePointSaved"));
+			}
 		}
 	}
 
 	private void restoreSavePointMenuItemActionPerformed(java.awt.event.ActionEvent evt) {
-		
-		GuiState state = new GuiState(sudokuPanel, sudokuPanel.getSolver(), solutionPanel);
-		state.get(true);
-		RestoreSavePointDialog dlg = new RestoreSavePointDialog(this, true);
-		dlg.setVisible(true);
-		
-		if (!dlg.isOkPressed()) {
-			// restore everything
-			setState(state);
-		}
-		
-		state = null;
-	}
+        GuiState state = new GuiState(sudokuPanel, sudokuPanel.getSolver(), solutionPanel);
+        state.setIncludeAnnotations(true);
+        state.get(true);
+        if (replayController != null) { replayController.capture("manual", ReplayText.text("manual")); replayController.suspend(); }
+        boolean confirmed=false;
+        try {
+            RestoreSavePointDialog dlg = new RestoreSavePointDialog(this, true);
+            dlg.setVisible(true);
+            confirmed=dlg.isOkPressed();
+            if (!confirmed) setState(state);
+        } finally {
+            if (replayController != null) replayController.resume();
+        }
+        if (confirmed && replayController != null) replayController.savePointRestored();
+    }
 
 	private void playingMenuItemActionPerformed(java.awt.event.ActionEvent evt) {
 		setMode(GameMode.PLAYING, true);
@@ -4364,6 +4521,16 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
         String message = chainValidationMessage(result);
         setHintText(message);
         statusLabelCellCandidate.setText(message);
+    }
+
+    void announceDisconnectedChains(List<UserChainNode> anchors) {
+        List<String> positions=new ArrayList<>();
+        for(UserChainNode node:anchors) {
+            int cell=node.cells()[0];positions.add("r"+(cell/9+1)+"c"+(cell%9+1)+"("+node.getCandidate()+")");
+        }
+        String message=MessageFormat.format(ResourceBundle.getBundle("intl/MainFrame")
+                .getString("MainFrame.chainOrigin.disconnected"),anchors.size(),String.join(", ",positions));
+        setHintText(message);statusLabelCellCandidate.setText(message);
     }
 
 	private void showTechniqueSelector() {
@@ -5451,16 +5618,26 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		setPuzzle(puzzle, false);
 	}
 
-	private boolean setPuzzle(String puzzle, boolean addToHistory) {
+    private boolean setPuzzle(String puzzle, boolean addToHistory) {return setPuzzle(puzzle,addToHistory,null);}
+	private boolean setPuzzle(String puzzle, boolean addToHistory, Sudoku2 exact) {
 
 		setHintText("");
 		try {
-			sudokuPanel.setSudoku(puzzle);
+			if(exact==null)sudokuPanel.setSudoku(puzzle);
+            else sudokuPanel.setSudoku(puzzle,false,false);
 		} catch (Exception ex) {
 			Logger.getLogger(getClass().getName()).log(Level.SEVERE, "Error setting sudoku in SudokuPanel", ex);
 			return false;
 		}
 
+        if(exact!=null){
+            Sudoku2 prepared=sudokuPanel.getSudoku();
+            exact.setLevel(prepared.getLevel());exact.setScore(prepared.getScore());
+            exact.setStatus(prepared.getStatus());exact.setStatusGivens(prepared.getStatusGivens());
+            if(prepared.isSolutionSet())exact.setSolution(prepared.getSolution());
+            for(int c=0;c<81;c++)exact.setIsFixed(c,prepared.isFixed(c));
+            prepared.set(exact);sudokuPanel.getSolver().setSudoku(prepared);
+        }
 		allStepsPanel.setSudoku(sudokuPanel.getSudoku());
 		initializeResultPanels();
 		sudokuPanel.clearColoring();
@@ -5470,6 +5647,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		beginTrackedPuzzle(addToHistory);
 		check();
 		repaint();
+		if (replayController != null) replayController.startNewAttempt();
 		return true;
 	}
 
@@ -6148,6 +6326,8 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				ZipOutputStream zOut = new ZipOutputStream(new FileOutputStream(path));
 				zOut.putNextEntry(new ZipEntry("SudokuData"));
 				XMLEncoder out = new XMLEncoder(zOut);
+                final Exception[] encodingFailure = new Exception[1];
+                out.setExceptionListener(error -> encodingFailure[0] = error);
 				out.writeObject(sudokuPanel.getSudoku());
 				out.writeObject(SudokuSolverFactory.getDefaultSolverInstance().getAnzSteps());
 				out.writeObject(SudokuSolverFactory.getDefaultSolverInstance().getSteps());
@@ -6157,6 +6337,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				out.close();
 				zOut.flush();
 				zOut.close();
+                if (encodingFailure[0] != null) throw new IOException("Unable to save Sudoku state", encodingFailure[0]);
 				
 			} else if (filterType == 9) {
 				
@@ -6186,6 +6367,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				}
 				
 				out.close();
+                if (out.checkError()) throw new IOException("Unable to save Sudoku text file");
 				
 			} else {
 				
@@ -6227,6 +6409,10 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				out.write(line);
 				out.close();
 			}
+            if (replayController != null) {
+                replayController.retainCurrent();
+                replayController.showRetentionFailure(ReplayText.text("puzzleSaved"));
+            }
 		}
 	}
 
@@ -6446,6 +6632,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				setState(state);
 				setMode(GameMode.PLAYING, true);
 				completionTransition.begin(false, isCurrentPuzzleCorrectlySolved());
+				if (replayController != null) replayController.startNewAttempt();
 				
 			} else if (fileType == 8) {
 				

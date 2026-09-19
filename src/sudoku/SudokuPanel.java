@@ -142,6 +142,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         private String searchIdentity;
         private int matchCount;
         private boolean assumedRelations;
+        private byte[] replayRaw,replayResult;
+        private long replayInputWall,replayInputElapsed,replayResultWall,replayResultElapsed;
+        private UserChainValidator.Result replayValidation;
 
 		private ReasoningRequest(long requestId, ReasoningSourceKind sourceKind,
 				long sourceId, long boardRevision, long sourceRevision,
@@ -309,12 +312,15 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     private boolean chainRightDelete, chainRightDragged;
     private final AnnotationTimeline annotationTimeline = new AnnotationTimeline();
     private int annotationPaintLayer;
+    private boolean chainOptionDown;
+    private final java.util.Set<String> previewSourceAnnotations = new java.util.HashSet<>();
+    private static final Color PREVIEW_DELETE_COLOR = new Color(235, 0, 0);
 
 
     private Point coloringPress, coloringCurrent;
     private boolean coloringErase, coloringRight;
     private Color coloringGestureColor;
-    private boolean boxRightToggle, boxRightDragged;
+    private boolean boxRightInspect, boxRightDragged;
     private boolean doodleDragged;
     private double lastUserChainRouteDiameter;
 	private float doodleWidthFactor = 0.006f;
@@ -328,6 +334,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	private final Stack<List<SudokuSet>> boxReasoningUndoStack = new Stack<List<SudokuSet>>();
 	private final Stack<List<SudokuSet>> boxReasoningRedoStack = new Stack<List<SudokuSet>>();
 	private int activeBoxReasoningGroup;
+    private int inspectedBoxGroup = -1;
+    private String inspectedBoxSignature;
 	private Point boxDragStart;
 	private Point boxDragCurrent;
 	private boolean boxDragRemoves;
@@ -343,6 +351,58 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	private long generatedStepOwnerRevision;
 	private long nextReasoningRequestId = 1L;
 	private ReasoningRequest reasoningRequest;
+    private ChainTextCodec.Document importedChainText;
+    private SolutionStep importedChainStep;
+    private final Set<String> importedInvalidRelations=new HashSet<String>();
+
+    String copyChainText() {
+        if (step != null) {
+            if (step == importedChainStep && importedChainText != null) return importedChainText.text();
+            if (isAuthoredChainPreview() && reasoningProposal.request.chainFootprint!=null) return ChainTextCodec.format(sudoku,
+                    java.util.Collections.singletonList(reasoningProposal.request.chainFootprint), step);
+            return ChainTextCodec.formatNativeStep(sudoku,step);
+        }
+        if (annotationTool != AnnotationTool.FREE_CHAIN) return null;
+        List<UserChain> chains = snapshotUserChains();
+        return chains.isEmpty() ? null : ChainTextCodec.format(sudoku, chains, null);
+    }
+
+    void showImportedChainText(ChainTextCodec.Document document) {
+        if (!document.matches(sudoku)) return;
+        SolutionStep display=document.step();
+        mainFrame.setSolutionStep(display,true);
+        importedChainText=document;importedChainStep=display;
+        importedInvalidRelations.clear();
+        // Local edge checks only: never derive or replace imported conclusions.
+        for(UserChain chain:document.chains())for(int i=0;i<chain.getStrongRelations().size();i++){
+            UserChainNode a=chain.getNodes().get(i),b=chain.getNodes().get((i+1)%chain.getNodes().size());
+            boolean strong=chain.getStrongRelations().get(i);
+            if(!(strong?UserChainValidator.strong(sudoku,a,b):UserChainValidator.weak(a,b)))
+                importedInvalidRelations.add(UserChainValidator.relationKey(a,b,strong));
+        }
+        setAnnotationTool(AnnotationTool.FREE_CHAIN);
+        repaint();
+    }
+
+    private boolean adoptImportedChainText() {
+        if (importedChainText==null || step!=importedChainStep || importedChainText.hasConclusion())return false;
+        ChainTextCodec.Document document=importedChainText;
+        if (!document.matches(sudoku)){mainFrame.setSolutionStep(null,true);return true;}
+        pushUserChainUndo();
+        if(activeUserChain!=null)finishActiveUserChain(activeUserChain.isClosed(),false,true);
+        mainFrame.setSolutionStep(null,true);
+        for(UserChain chain:document.chains()){
+            chain.setSourceId(nextUserChainSourceId++);chain.setActive(false);userChains.add(chain);
+        }
+        if(!userChains.isEmpty()){
+            UserChain last=userChains.get(userChains.size()-1);
+            if(!last.isClosed()){userChains.remove(userChains.size()-1);activeUserChain=last;last.setActive(true);}
+            updateNextUserChainStrong(last.getStrongRelations().isEmpty() || !last.getStrongRelations().get(last.getStrongRelations().size()-1));
+        }
+        noteUserChainReasoningChanged();repaint();
+        mainFrame.announceStatus("MainFrame.chainText.adopted");return true;
+    }
+
 	private ReasoningProposal reasoningProposal;
 	private Thread reasoningWorker;
 	private boolean applyingReasoningProposal;
@@ -353,16 +413,129 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	private boolean userChainsVisible = true;
 	private static final float[] DOODLE_WIDTH_FACTORS = { 0.0035f, 0.0050f, 0.0070f, 0.0095f };
 	private int doodleWidthIndex = 1;
-	private long lastDoodleWheelChange;
+	private final AnnotationWheelGate doodleWheelGate = new AnnotationWheelGate();
 	private static final int ANNOTATION_UNDO_LIMIT = 100;
 
 	/**
 	 * Creates new form SudokuPanel
 	 * @param mf
 	 */
-	public SudokuPanel(MainFrame mf) {
+    private ReasoningRequest replayApplyingRequest;
+    private byte[] snapshotReplayProof(SolutionStep value) {
+        try{return ReplayProof.encode(value);}catch(RuntimeException ex){
+            ReplayController c=mainFrame.getReplayController();if(c!=null)c.reportEvidenceFailure(ex);
+            return new byte[0];
+        }
+    }
+    private byte[] snapshotReplayInput(ReasoningSourceKind source) {
+        if(source==ReasoningSourceKind.NONE)return null;
+        try{
+            List<UserChain> chains=currentReasoningChains();
+            for(UserChain chain:chains)for(UserChainNode node:chain.getNodes())if(node.getColor()==null)node.setColor(userChainNodeColor(node));
+            return ReplayEvidence.input(source.name(),getBoxReasoningGroupsSnapshot(),chains);
+        }catch(RuntimeException ex){ReplayController c=mainFrame.getReplayController();if(c!=null)c.reportEvidenceFailure(ex);return null;}
+    }
+    private void prepareReplayRequest(ReasoningRequest request,byte[] raw) {
+        request.replayRaw=raw;ReplayController c=mainFrame.getReplayController();
+        request.replayInputWall=c==null?System.currentTimeMillis():c.wallTimeMillis();
+        request.replayInputElapsed=c==null?0:c.elapsedMillis();
+    }
+    private SolutionStep replayDisplayedReference;
+    private byte[] replayDisplayedProof;
+    private long replayDisplayWall, replayDisplayElapsed;
+    private List<ReplayFrame> replayBatch;
+    private void rememberReplayProof() {
+        if(replayReadOnly||step==null){replayDisplayedReference=null;replayDisplayedProof=null;return;}
+        replayDisplayedReference=step;replayDisplayedProof=snapshotReplayProof(step);
+        ReplayController c=mainFrame.getReplayController();
+        replayDisplayWall=c==null?System.currentTimeMillis():c.wallTimeMillis();
+        replayDisplayElapsed=c==null?0:c.elapsedMillis();
+    }
+    private void recordReplayProof(Sudoku2 before, byte[] proof,long wall,long elapsed) {
+        ReplayController c=mainFrame.getReplayController();
+        if(c==null||c.session().completed||c.isViewing())return;
+        c.updateElapsed();
+        long id=c.session().last().operationId+1,now=c.wallTimeMillis();
+        String name;
+        try{name=proof.length==0?ReplayText.text("proofFailure"):ReplayProof.decode(proof).getStepName();}catch(java.io.IOException e){throw new IllegalStateException(e);}
+        List<ReplayFrame> pair=new ArrayList<ReplayFrame>();
+        ReasoningRequest request=replayApplyingRequest;
+        if(request!=null&&request.sourceKind!=ReasoningSourceKind.NONE&&request.replayResult==null){proof=new byte[0];name=ReplayText.text("authoredFailure");}
+        if(request!=null&&request.replayResult!=null&&request.replayRaw!=null){
+            byte[] evidence=request.replayResult;
+            pair.add(new ReplayFrame(id,request.replayInputWall,request.replayInputElapsed,"authored-input",ReplayText.text("raw"),new ReplayBoard(before),evidence));
+            String diagnostic;
+            try{diagnostic=ReplayEvidence.decode(evidence).diagnostic();}catch(java.io.IOException e){throw new IllegalStateException(e);}
+            pair.add(new ReplayFrame(id,request.replayResultWall,request.replayResultElapsed,"authored-result",ReplayText.text("result",diagnostic),new ReplayBoard(before),evidence));
+            pair.add(new ReplayFrame(id,now,c.elapsedMillis(),"authored-apply",ReplayText.text("applyAuthored",diagnostic),new ReplayBoard(sudoku),evidence));
+        }else{
+            if(proof.length>0)pair.add(new ReplayFrame(id,wall,elapsed,"proof",ReplayText.text("proof",name),new ReplayBoard(before),proof));
+            pair.add(new ReplayFrame(id,now,c.elapsedMillis(),proof.length==0?"evidence-unavailable":"apply",ReplayText.text("apply",name),new ReplayBoard(sudoku),null));
+        }
+        if(replayBatch!=null)replayBatch.addAll(pair);else c.appendOperation(pair);
+    }
+    private void flushReplayBatch() {
+        List<ReplayFrame> frames=replayBatch;replayBatch=null;
+        ReplayController c=mainFrame.getReplayController();if(c!=null&&frames!=null&&!frames.isEmpty()){c.updateElapsed();c.appendOperation(frames);}
+    }
+    private boolean replayReadOnly;
+    public void setReplayReadOnly(boolean value) { replayReadOnly=value; setFocusable(!value); }
+    /** Pure renderer update: no live frame callbacks, solver requests or progress mutations. */
+    public void displayReplayBoard(ReplayBoard board, SolutionStep evidence) {
+        if (!replayReadOnly) throw new IllegalStateException("Not a replay renderer");
+        sudoku=board.toSudoku(); step=evidence; chainIndex=-1;
+        cellSelection.clear(); coloringMap.clear(); coloringCandidateMap.clear();
+        userChains.clear(); boxReasoningGroups.clear(); doodleStrokes.clear();activeUserChain=null;invalidUserChainRelations.clear();
+        repaint();
+    }
+    public void displayReplayFrame(ReplayFrame frame)throws java.io.IOException {
+        byte[] bytes=frame.evidence();ReplayEvidence evidence=ReplayEvidence.authored(bytes)?ReplayEvidence.decode(bytes):null;
+        boolean input="authored-input".equals(frame.kind),result="authored-result".equals(frame.kind);
+        displayReplayBoard(frame.board,evidence==null?ReplayProof.decode(bytes):result?ReplayEvidence.proof(bytes):null);
+        if(evidence!=null&&(input||result)){
+            boxReasoningGroups.addAll(evidence.boxes());userChains.addAll(evidence.chains());
+            if(result)invalidUserChainRelations.addAll(evidence.invalidRelations());
+        }
+        repaint();
+    }
+    /** Imports only editable source geometry, never a historical proof/proposal or diagnosis. */
+    void restoreReplayAnnotations(byte[] bytes) throws java.io.IOException {
+        ReplayEvidence raw=bytes.length==0?null:ReplayEvidence.decode(bytes);
+        if(raw==null)return;
+        if(!raw.status.equals("PENDING")||raw.proofBytes().length!=0)throw new java.io.IOException("Expected raw annotation source");
+        generatedStepOwnerWillChange();step=null;clearUndoRedo();
+        boxReasoningGroups.clear();boxReasoningGroups.addAll(raw.boxes());
+        List<UserChain> chains=raw.chains();for(UserChain chain:chains)chain.setAnalysisResult(null);
+        restoreUserChainSnapshot(chains);invalidUserChainRelations.clear();
+        boxReasoningUndoStack.clear();boxReasoningRedoStack.clear();userChainUndoStack.clear();userChainRedoStack.clear();
+        boxReasoningRevision++;userChainReasoningRevision++;confirmedUserChainSourceId=0L;
+        setAnnotationTool("BOX".equals(raw.source)?AnnotationTool.BOX_SELECTION:AnnotationTool.FREE_CHAIN);
+        repaint();
+    }
+    @Override protected void processKeyEvent(java.awt.event.KeyEvent event) {
+        if (!replayReadOnly) super.processKeyEvent(event);
+    }
+    @Override protected void processMouseEvent(java.awt.event.MouseEvent event) {
+        if (!replayReadOnly) super.processMouseEvent(event);
+    }
+    @Override protected void processMouseMotionEvent(java.awt.event.MouseEvent event) {
+        if (!replayReadOnly) super.processMouseMotionEvent(event);
+    }
+    @Override protected void processMouseWheelEvent(java.awt.event.MouseWheelEvent event) {
+        if (!replayReadOnly) super.processMouseWheelEvent(event);
+    }
 
+	public SudokuPanel(MainFrame mf) { this(mf, false); }
+
+	SudokuPanel(MainFrame mf, boolean readOnlyReplay) {
 		mainFrame = mf;
+		if (readOnlyReplay) {
+			replayReadOnly=true; sudoku=new Sudoku2(); sudoku.clearSudoku();
+			showCandidates=Options.getInstance().isShowCandidates();
+			initComponents(); setFocusable(false);
+			calculateGridRegion(getBounds(), false, false);
+			return;
+		}
 		sudoku = new Sudoku2();
 		sudoku.clearSudoku();
 		setShowCandidates(Options.getInstance().isShowCandidates());
@@ -560,6 +733,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	void cancelAnnotationToolInteractionOnDeactivation() {
+        chainOptionDown=false;
 		if (annotationToolPointerCaptured || boxDragStart != null || activeDoodleStroke != null) {
 			suppressNextAnnotationPointerRelease = true;
 		}
@@ -664,6 +838,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 			@Override
 			public void mouseEntered(MouseEvent evt) {
+                updateDeletionPointer(evt);
 				repaint();
 			}
 
@@ -758,17 +933,16 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				if (annotationTool == AnnotationTool.DOODLE && SudokuUtil.isDeletionModifierDown(evt)
                         && (modifiers & (relevant & ~SudokuUtil.getDeletionModifierMask())) == 0) {
                     doodleEraserRadius = Math.max(0.006f, Math.min(0.20f,
-                            doodleEraserRadius + Integer.signum(evt.getWheelRotation()) * 0.005f));
+                            doodleEraserRadius + doodleWheelGate.step(evt.getPreciseWheelRotation(), evt.getWhen()) * 0.005f));
                     updateDeletionPointer(evt); evt.consume(); repaint();
                 } else if (annotationTool == AnnotationTool.DOODLE
-						&& (modifiers & relevant) == 0) {
-					cycleDoodleWidth(evt.getWheelRotation());
+						&& (modifiers & relevant) == KeyEvent.META_DOWN_MASK) {
+                    cycleDoodleWidth(evt.getPreciseWheelRotation(), evt.getWhen());
 					evt.consume();
-				} else if ((cellZoomPanel.isColoring() || annotationTool == AnnotationTool.FREE_CHAIN
+				} else if ((cellZoomPanel.isColoring() || annotationTool == AnnotationTool.DOODLE || annotationTool == AnnotationTool.FREE_CHAIN
 						|| annotationTool == AnnotationTool.BOX_SELECTION)
 						&& (modifiers & (relevant & ~KeyEvent.ALT_DOWN_MASK)) == 0) {
-					cellZoomPanel.cyclePaletteColor(evt.getWheelRotation(),
-							(modifiers & KeyEvent.ALT_DOWN_MASK) != 0);
+					cellZoomPanel.cyclePaletteColor(evt.getPreciseWheelRotation());
 					evt.consume();
 				}
 			}
@@ -1099,6 +1273,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	 * control in the main window currently owns keyboard focus.
 	 */
 	boolean handleEscapeVisualReset() {
+        if(importedChainText!=null){mainFrame.abortStep();return true;}
 		clearPendingAnnotationToolTap();
 		if (handleAnnotationEscape()) return true;
 		if (cellZoomPanel.isColoring()) {
@@ -1178,18 +1353,22 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         if (annotationTool == AnnotationTool.FREE_CHAIN) {
             UserChainAssembly.Result assembled=UserChainAssembly.assemble(currentReasoningChains());
             if(assembled.chain==null) {
+                if(assembled.componentAnchors.size()>1) {
+                    mainFrame.announceDisconnectedChains(assembled.componentAnchors);return;
+                }
                 mainFrame.announceChainValidation(new UserChainValidator.Result(
                         assembled.problem==UserChainValidator.Problem.NONE?UserChainValidator.Status.INCOMPLETE:UserChainValidator.Status.INVALID,
                         -1,new ArrayList<SolutionStep>(),assembled.problem));return;
             }
+            byte[] replayRaw=snapshotReplayInput(ReasoningSourceKind.FREE_CHAIN);
             if(activeUserChain!=null) finishActiveUserChain(activeUserChain.isClosed(),true,true);
-            startReasoningAnalysis(ReasoningSourceKind.FREE_CHAIN,-1L,null,assembled.chain);return;
+            startReasoningAnalysis(ReasoningSourceKind.FREE_CHAIN,-1L,null,assembled.chain,replayRaw);return;
         }
 
 		if (annotationTool == AnnotationTool.BOX_SELECTION) {
 			SudokuSet footprint = getBoxReasoningFootprint();
 			if (!footprint.isEmpty()) {
-				startReasoningAnalysis(ReasoningSourceKind.BOX, 0L, footprint, null);
+				startReasoningAnalysis(ReasoningSourceKind.BOX, 0L, footprint, null,snapshotReplayInput(ReasoningSourceKind.BOX));
 				return;
 			}
 		}
@@ -1218,6 +1397,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         ReasoningRequest request=new ReasoningRequest(nextReasoningRequestId++,kind,chain==null?0:chain.getSourceId(),
                 reasoningBoardRevision,reasoningSourceRevision(kind),generatedStepOwnerRevision,
                 TechniqueStepCatalog.createSignature(sudoku),boxes==null?null:boxes.clone(),chain==null?null:copyUserChain(chain));
+        prepareReplayRequest(request,snapshotReplayInput(kind));
         request.searchIdentity=currentReasoningInputIdentity();
         rememberReasoningHint(request,selected);selectedReasoningHintVerified=verified;
     }
@@ -1297,6 +1477,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         cancelReasoningState(true, null);
         ReasoningSourceKind kind = boxes != null ? ReasoningSourceKind.BOX
                 : chain != null ? ReasoningSourceKind.FREE_CHAIN : ReasoningSourceKind.NONE;
+        byte[] replayRaw=snapshotReplayInput(kind);
         if (chain != null && chain.isActive()) {
             if (!sameUserChainContent(chain, activeUserChain)) return;
             chain = finishActiveUserChain(chain.isClosed(), true, true);
@@ -1305,6 +1486,11 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
                 chain == null ? 0 : chain.getSourceId(), reasoningBoardRevision, reasoningSourceRevision(kind),
                 generatedStepOwnerRevision, TechniqueStepCatalog.createSignature(sudoku),
                 boxes == null ? null : boxes.clone(), chain == null ? null : copyUserChain(chain));
+        prepareReplayRequest(request,replayRaw);
+        if(kind==ReasoningSourceKind.FREE_CHAIN) {
+            request.replayValidation=UserChainValidator.preview(sudoku,request.chainFootprint);
+            request.assumedRelations=verified && request.replayValidation.status==UserChainValidator.Status.ASSUMED;
+        }
         request.searchIdentity = currentReasoningInputIdentity();
         reasoningRequest = request;
         publishReasoningAnalysis(request, new NativeReasoningMatcher.Match(selected, NativeReasoningMatcher.keyForStep(selected)), null);
@@ -1323,7 +1509,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         if(box!=null)for(int i=0;i<box.size();i++)cells.add(box.get(i));return cells;
     }
 	private void startReasoningAnalysis(ReasoningSourceKind sourceKind, long sourceId,
-			SudokuSet boxFootprint, UserChain chainFootprint) {
+			SudokuSet boxFootprint, UserChain chainFootprint,byte[] replayRaw) {
 		final Sudoku2 boardSnapshot = sudoku.clone();
 		final String boardSignature = TechniqueStepCatalog.createSignature(boardSnapshot);
 		final long sourceRevision = reasoningSourceRevision(sourceKind);
@@ -1331,6 +1517,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				sourceId, reasoningBoardRevision, sourceRevision, generatedStepOwnerRevision,
 				boardSignature, boxFootprint == null ? null : boxFootprint.clone(),
 				chainFootprint == null ? null : copyUserChain(chainFootprint));
+        prepareReplayRequest(request,replayRaw);
 		String identity = reasoningRequestIdentity(request);
 		reasoningRequest = request;
 		mainFrame.setReasoningControls(false, true);
@@ -1344,6 +1531,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
                         UserChainValidator.Result validated = UserChainValidator.preview(boardSnapshot, request.chainFootprint);
                         request.matchCount = validated.steps.size();
                         request.assumedRelations=validated.status==UserChainValidator.Status.ASSUMED;
+                        request.replayValidation=validated;
                         if (!validated.steps.isEmpty()) {
                             SolutionStep first = validated.steps.get(0);
                             match = new NativeReasoningMatcher.Match(first, NativeReasoningMatcher.keyForStep(first));
@@ -1413,6 +1601,12 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		} finally {
 			internalReasoningStepChange = false;
 		}
+        if(request.replayRaw!=null){
+            try{byte[] proof=snapshotReplayProof(match.getStep());
+                if(proof.length>0)request.replayResult=ReplayEvidence.result(request.replayRaw,proof,request.replayValidation,"NATIVE_MATCH");
+                ReplayController c=mainFrame.getReplayController();request.replayResultWall=c==null?System.currentTimeMillis():c.wallTimeMillis();request.replayResultElapsed=c==null?0:c.elapsedMillis();
+            }catch(RuntimeException ex){ReplayController c=mainFrame.getReplayController();if(c!=null)c.reportEvidenceFailure(ex);request.replayResult=null;}
+        }
 		reasoningProposal = new ReasoningProposal(request, match.getKey(),
 				generatedStepOwnerRevision);
 		mainFrame.setReasoningControls(true, true);
@@ -1489,6 +1683,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			generatedStepOwnerRevision++;
 			internalReasoningStepChange = true;
 			executingReasoningStep = true;
+            replayApplyingRequest=proposal.request;
 			try {
 				if (!doStep()) {
 					step = null;
@@ -1507,6 +1702,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				return;
 			} finally {
 				executingReasoningStep = false;
+                replayApplyingRequest=null;
 				internalReasoningStepChange = false;
 			}
 			consumeAppliedReasoningSource(proposal.request);
@@ -1656,6 +1852,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	/** Routes toolbar, hint-panel, and Enter confirmation through one revalidation gate. */
 	boolean confirmReasoningProposal() {
+        if(adoptImportedChainText())return true;
 		if (reasoningRequest != null || applyingReasoningProposal) {
 			mainFrame.announceReasoningStatus(applyingReasoningProposal
 					? "MainFrame.reasoning.revalidating" : "MainFrame.reasoning.analyzing");
@@ -1682,7 +1879,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	private void noteBoxReasoningChanged() {
-        mainFrame.updateCellSelectionStatus();
+        clearBoxInspection();
 		lastNoMatchIdentity = null;
 		invalidateReasoningSource(ReasoningSourceKind.BOX);
 	}
@@ -1721,6 +1918,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	private void generatedStepOwnerWillChange() {
+        importedChainText=null;importedChainStep=null;
 		generatedStepOwnerRevision++;
 		if (!internalReasoningStepChange) {
 			cancelReasoningState(false, "MainFrame.reasoning.invalidated");
@@ -1729,6 +1927,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	/** Called by MainFrame after every real Sudoku mutation. */
 	void reasoningBoardChanged() {
+        if(importedChainText!=null && !importedChainText.matches(sudoku))mainFrame.setSolutionStep(null,true);
         invalidUserChainRelations.clear();
 		clearPendingAnnotationToolTap();
 		activeAnnotationToolDoubleTap = false;
@@ -2109,6 +2308,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         chainDeleteStart=chainDeleteCurrent=null;
         chainFlipStart=chainFlipCurrent=null;clearPreciseChainGesture();
         coloringPress=coloringCurrent=null;
+        clearBoxInspection();
 		annotationTool = tool;
 		boolean wasApplyingAnnotationTool = applyingAnnotationTool;
 		applyingAnnotationTool = true;
@@ -2170,6 +2370,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
     void updateDeletionModifier(KeyEvent event) {
+        setChainOptionDown(event.getKeyCode()==KeyEvent.VK_ALT
+                ? event.getID()!=KeyEvent.KEY_RELEASED : event.isAltDown());
         if (event.getID()==KeyEvent.KEY_RELEASED && (event.getKeyCode()==KeyEvent.VK_ALT
                 || preciseChainDelete && event.getKeyCode()==KeyEvent.VK_CONTROL)) clearPreciseChainGesture();
         if (!SudokuUtil.isDeletionModifierKey(event)) return;
@@ -2178,6 +2380,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     }
 
     private void updateDeletionPointer(MouseEvent event) {
+        setChainOptionDown(event.isAltDown());
         if (preciseChainCandidate>=0 && (!event.isAltDown() || preciseChainDelete && !event.isControlDown())) clearPreciseChainGesture();
         deletionModifierDown = SudokuUtil.isDeletionModifierDown(event);
         lastMousePosition = event.getPoint();updateDeletionCursor();repaint();
@@ -2279,9 +2482,36 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         }
         annotationTimeline.observe(step==null?null:ReasoningStepIndex.identity(step),objects);
     }
+    private boolean isAuthoredChainPreview() {
+        return step != null && reasoningProposal != null && reasoningProposal.authoredChainProof;
+    }
+    private boolean isFocusedReasoningPreview() {
+        return step != null && reasoningProposal != null && (reasoningProposal.authoredChainProof
+                || reasoningProposal.request.sourceKind == ReasoningSourceKind.BOX);
+    }
+    /** The entire submitted chain is the focus, not the solver's extracted proof path. */
+    private void refreshPreviewFocus() {
+        previewSourceAnnotations.clear();
+        if (!isFocusedReasoningPreview()) return;
+        UserChain source = isAuthoredChainPreview() ? reasoningProposal.request.chainFootprint : null;
+        if (source != null) {
+            for (UserChainNode node : source.getNodes()) {
+                previewSourceAnnotations.add(chainNodeTimeKey(node));
+            }
+            int n=source.getNodes().size();
+            for (int i=0;i<source.getStrongRelations().size();i++) {
+                UserChainNode a=source.getNodes().get(i),b=source.getNodes().get((i+1)%n);
+                previewSourceAnnotations.add(chainEdgeTimeKey(a,b));
+                previewSourceAnnotations.add(chainEdgeTimeKey(b,a));
+            }
+        }
+    }
+    private boolean isForegroundAnnotation(String key) {
+        return annotationTimeline.isLater(key) || isAuthoredChainPreview() && previewSourceAnnotations.contains(key);
+    }
     private boolean paintAnnotation(String key) {
         if(step==null)return annotationPaintLayer!=2;
-        boolean later=annotationTimeline.isLater(key);
+        boolean later=isForegroundAnnotation(key);
         if(key.startsWith("box:") && boxDragPreview!=null) {
             String[] parts=key.split(":");int group=Integer.parseInt(parts[1]),cell=Integer.parseInt(parts[2]);
             if(!boxReasoningGroups.get(group).contains(cell)&&isBoxReasoningCellPredicted(group,cell))later=true;
@@ -2289,7 +2519,10 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         return annotationPaintLayer==2?later:!later;
     }
     private Color annotationColor(String key,Color color,Color background) {
-        if(step==null||annotationTimeline.isLater(key))return color;
+        if(step==null||isForegroundAnnotation(key))return color;
+        return fadedAnnotationColor(color,background);
+    }
+    private Color fadedAnnotationColor(Color color,Color background) {
         float a=BACKGROUND_ANNOTATION_ALPHA;
         return new Color(Math.round(color.getRed()*a+background.getRed()*(1-a)),
             Math.round(color.getGreen()*a+background.getGreen()*(1-a)),
@@ -2685,17 +2918,15 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		return true;
 	}
 
-	private void cycleDoodleWidth(int rotation) {
-		if (rotation == 0) {
-			return;
-		}
-		long now = System.currentTimeMillis();
-		if (now - lastDoodleWheelChange < 90L) {
-			return;
-		}
-		lastDoodleWheelChange = now;
-		adjustDoodleWidth(rotation > 0 ? 1 : -1);
-	}
+    void cycleDoodleWidth(double rotation, long when) {
+        int step = doodleWheelGate.step(rotation, when);
+        if (step != 0) adjustDoodleWidth(step);
+    }
+
+    void cycleDoodleWidthByClick() {
+        setDoodleWidthIndex((doodleWidthIndex + 1) % DOODLE_WIDTH_FACTORS.length);
+        repaint();
+    }
 
 	private void adjustDoodleWidth(int delta) {
 		setDoodleWidthIndex(doodleWidthIndex + delta);
@@ -2980,7 +3211,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			return false;
 		}
 		boolean selected = boxReasoningGroups.get(group).contains(cellIndex);
-		if (boxDragPreview != null && !boxRightToggle && boxDragPreview.contains(cellIndex)) {
+		if (boxDragPreview != null && !boxRightInspect && boxDragPreview.contains(cellIndex)) {
             if (boxDragRemoves) return false;
             boolean existing = false;
             for (SudokuSet cells : boxReasoningGroups) existing |= cells.contains(cellIndex);
@@ -3088,12 +3319,17 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		if (!isUserChainCandidateVisible(index, candidate)) {
 			return true;
 		}
-        boolean restarted=event.isAltDown() && activeUserChain!=null;
-        if(restarted){pushUserChainUndo();finishActiveUserChain(activeUserChain.isClosed(),false,true);}
 		int paletteGroup = cellZoomPanel.getPaletteGroup();
 		Color[] palette = Options.getInstance().getColoringColors();
 		UserChainNode node = new UserChainNode(index, candidate,
 				palette[paletteGroup * 2]);
+        if(!event.isShiftDown()) {
+            List<UserChainNode> groups=groupsAtCandidate(index,candidate);
+            if(groups.size()>1) {mainFrame.announceReasoningStatus("MainFrame.chainOrigin.ambiguous");return true;}
+            if(groups.size()==1)node=groups.get(0).copy();
+        }
+        boolean restarted=event.isAltDown() && activeUserChain!=null;
+        if(restarted){pushUserChainUndo();finishActiveUserChain(activeUserChain.isClosed(),false,true);}
 		if (activeUserChain == null) {
 			if(!restarted)pushUserChainUndo();
 			confirmedUserChainSourceId = 0L;
@@ -3122,7 +3358,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             members[members.length-1]=index;expanded.setGroupCells(members);
             if(problem==null && !expanded.validShape())problem="shape";
             if(problem!=null){mainFrame.announceReasoningStatus("MainFrame.currentReasoning.group."+problem);return true;}
-            pushUserChainUndo();activeUserChain.getNodes().set(nodeCount-1,expanded);
+            pushUserChainUndo();replaceChainNodeReferences(last,expanded);
             noteUserChainReasoningChanged();mainFrame.check();repaint();return true;
         }
 		if (sameUserChainNode(activeUserChain.getNodes().get(nodeCount - 1), node)) {
@@ -3173,7 +3409,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		boolean right=SwingUtilities.isRightMouseButton(event);
         if(!SwingUtilities.isLeftMouseButton(event)&&!right)return true;
         if(right && event.getModifiersEx() != java.awt.event.InputEvent.BUTTON3_DOWN_MASK && event.getModifiersEx()!=0)return true;
-        cancelBoxReasoningDrag();boxRightToggle=right;boxRightDragged=false;
+        cancelBoxReasoningDrag();boxRightInspect=right;boxRightDragged=false;
+        if (!right) clearBoxInspection();
 		boxDragStart = event.getPoint();
 		boxDragCurrent = event.getPoint();
 		boxDragRemoves = SudokuUtil.isDeletionModifierDown(event);
@@ -3189,7 +3426,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			return annotationTool == AnnotationTool.BOX_SELECTION;
 		}
 		boxDragCurrent = event.getPoint();
-        if(boxRightToggle && boxDragStart.distance(boxDragCurrent)>=4)boxRightDragged=true;
+        if(boxRightInspect && boxDragStart.distance(boxDragCurrent)>=4)boxRightDragged=true;
 		boxDragPreview = calculateBoxReasoningDragCells(boxDragCurrent);
 		repaint();
 		return true;
@@ -3203,10 +3440,23 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		SudokuSet affected = calculateBoxReasoningDragCells(boxDragCurrent);
         boolean changed = false;
         List<SudokuSet> after = copyBoxReasoningGroups(boxReasoningGroups);
-        if(boxRightToggle) {
-            if(boxRightDragged || boxDragStart.distance(boxDragCurrent)>=4 || getRow(boxDragStart)!=getRow(boxDragCurrent) || getCol(boxDragStart)!=getCol(boxDragCurrent))affected.clear();
-            boolean existing=false;for(SudokuSet group:after)for(int i=0;i<affected.size();i++)existing |= group.contains(affected.get(i));
-            if(existing){for(SudokuSet group:after)group.andNot(affected);}else after.get(boxDragGroup).or(affected);
+        if(boxRightInspect) {
+            if (!boxRightDragged && boxDragStart.distance(boxDragCurrent)<4 && affected.size()==1) {
+                int cell=affected.get(0), group=activeBoxReasoningGroup;
+                if (!boxReasoningGroups.get(group).contains(cell)) {
+                    for (int i=0;i<boxReasoningGroups.size();i++) {
+                        if (boxReasoningGroups.get(i).contains(cell)) { group=i; break; }
+                    }
+                }
+                if (!boxReasoningGroups.get(group).isEmpty()) {
+                    inspectedBoxGroup=group;
+                    inspectedBoxSignature=TechniqueStepCatalog.createSignature(sudoku);
+                    mainFrame.updateCellSelectionStatus();
+                }
+            }
+            clearBoxReasoningDragState();
+            repaint();
+            return true;
         } else if (boxDragRemoves) {
             for (SudokuSet group : after) group.andNot(affected);
         } else {
@@ -3361,10 +3611,26 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	void setActiveBoxReasoningGroup(int group) {
+        if (activeBoxReasoningGroup != Math.max(0, Math.min(5, group))) clearBoxInspection();
 		activeBoxReasoningGroup = Math.max(0, Math.min(5, group));
         if (mainFrame != null) mainFrame.updateCellSelectionStatus();
 		repaint();
 	}
+
+    private void clearBoxInspection() {
+        inspectedBoxGroup=-1;
+        inspectedBoxSignature=null;
+        if (mainFrame!=null) mainFrame.updateCellSelectionStatus();
+    }
+
+    int getInspectedBoxGroup() {
+        if (annotationTool!=AnnotationTool.BOX_SELECTION || inspectedBoxGroup<0) return -1;
+        if (!TechniqueStepCatalog.createSignature(sudoku).equals(inspectedBoxSignature)) {
+            inspectedBoxGroup=-1;
+            inspectedBoxSignature=null;
+        }
+        return inspectedBoxGroup;
+    }
 
     /** ALS counts use the union of candidates in unsolved cells, never occurrences or values. */
     int[] getBoxReasoningCounts(int group) {
@@ -3383,8 +3649,84 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	private boolean sameUserChainNode(UserChainNode first, UserChainNode second) {
-		return first.contains(second.getCellIndex(), second.getCandidate());
+		return first.identity()==second.identity();
 	}
+
+    private List<UserChainNode> groupsAtCandidate(int cell,int digit) {
+        Map<Integer,UserChainNode> groups=new java.util.LinkedHashMap<>();
+        List<UserChain> chains=new ArrayList<>(userChains);if(activeUserChain!=null)chains.add(activeUserChain);
+        for(UserChain chain:chains)for(UserChainNode node:chain.getNodes())
+            if(node.grouped()&&node.contains(cell,digit))groups.put(node.identity(),node);
+        return new ArrayList<>(groups.values());
+    }
+
+    private void replaceChainNodeReferences(UserChainNode old,UserChainNode expanded) {
+        List<UserChain> chains=new ArrayList<>(userChains);if(activeUserChain!=null)chains.add(activeUserChain);
+        for(UserChain chain:chains)for(int i=0;i<chain.getNodes().size();i++) {
+            UserChainNode current=chain.getNodes().get(i);
+            if(current.identity()==old.identity()) {
+                UserChainNode replacement=expanded.copy();replacement.setColor(current.getColor());
+                chain.getNodes().set(i,replacement);
+            }
+        }
+    }
+
+    private void setChainOptionDown(boolean down) {
+        if(chainOptionDown!=down){chainOptionDown=down;repaint();}
+    }
+
+    UserChainNode currentChainOrigin() {
+        if(annotationTool!=AnnotationTool.FREE_CHAIN || chainOptionDown || activeUserChain==null
+                || activeUserChain.isClosed() || activeUserChain.getNodes().isEmpty())return null;
+        return activeUserChain.getNodes().get(activeUserChain.getNodes().size()-1);
+    }
+
+    /** Static, concentric state cue: never recolor a user's node or animate frequent input. */
+    private void drawChainOrigin(Graphics2D graphics,SudokuAppearancePalette appearance,double diameter) {
+        if(replayReadOnly || annotationTool!=AnnotationTool.FREE_CHAIN || !userChainsVisible)return;
+        Graphics2D g=(Graphics2D)graphics.create();
+        try {
+            g.setComposite(AlphaComposite.SrcOver);
+            UserChainNode origin=currentChainOrigin();
+            if(origin!=null && isUserChainNodeVisible(origin))drawChainOriginRings(g,appearance,origin,diameter,false);
+            if(lastMousePosition==null || !isOnGrid(lastMousePosition))return;
+            if(chainOptionDown && !deletionModifierDown && preciseChainCandidate<0) {
+                String label=java.util.ResourceBundle.getBundle("intl/MainFrame").getString("MainFrame.chainOrigin.new");
+                g.setFont(candidateFont.deriveFont(Font.PLAIN,Math.max(11f,Math.min(14f,cellSize*.17f))));
+                FontMetrics fm=g.getFontMetrics();int width=fm.stringWidth(label)+16,height=fm.getHeight()+8;
+                int x=Math.max(gridRegion.x+2,Math.min(lastMousePosition.x+16,gridRegion.x+gridRegion.width-width-2));
+                int y=Math.max(gridRegion.y+2,Math.min(lastMousePosition.y-height-8,gridRegion.y+gridRegion.height-height-2));
+                g.setColor(appearance.isDark()?new Color(20,24,30,240):new Color(255,255,255,245));
+                g.fillRoundRect(x,y,width,height,10,10);
+                g.setColor(appearance.isDark()?new Color(255,255,255,55):new Color(0,0,0,45));
+                g.setStroke(new BasicStroke(1f));g.drawRoundRect(x,y,width,height,10,10);
+                g.setColor(appearance.getCandidateColor());g.drawString(label,x+8,y+4+fm.getAscent());
+            } else if(origin!=null) {
+                int row=getRow(lastMousePosition),col=getCol(lastMousePosition),digit=getCandidate(lastMousePosition,row,col);
+                List<UserChainNode> groups=groupsAtCandidate(row*9+col,digit);
+                if(groups.size()==1 && groups.get(0).identity()!=origin.identity())
+                    drawChainOriginRings(g,appearance,groups.get(0),diameter,true);
+            }
+        } finally {g.dispose();}
+    }
+
+    private void drawChainOriginRings(Graphics2D g,SudokuAppearancePalette appearance,UserChainNode node,double diameter,boolean target) {
+        double nodeRadius=(diameter>0?diameter:Math.max(10.0,cellSize/5.0))/2;
+        double radius=nodeRadius+Math.max(3.0,Math.min(5.0,cellSize*.045));
+        Color accent=appearance.isDark()?new Color(112,184,255):new Color(28,112,225);
+        for(int cell:node.cells()) {
+            Point2D.Double center=getCandKoord(cell,node.getCandidate(),cellSize);
+            java.awt.Shape ring=new java.awt.geom.Ellipse2D.Double(center.x-radius,center.y-radius,2*radius,2*radius);
+            if(target) {
+                g.setColor(new Color(accent.getRed(),accent.getGreen(),accent.getBlue(),145));
+                g.setStroke(new BasicStroke(1.5f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND,10,new float[]{2,3},0));
+            } else {
+                g.setColor(appearance.getDefaultCellColor());g.setStroke(new BasicStroke(4f));g.draw(ring);
+                g.setColor(accent);g.setStroke(new BasicStroke(2f));
+            }
+            g.draw(ring);
+        }
+    }
 
 	private UserChain finishActiveUserChain(boolean closed, boolean pushHistory) {
         return finishActiveUserChain(closed, pushHistory, false);
@@ -3671,9 +4013,21 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             for(UserChain chain:all)if(!isUserChainReplacedByReasoningProposal(chain))for(UserChainNode node:chain.getNodes()) {
                 if(!paintAnnotation(chainNodeTimeKey(node)) || !node.grouped() || !node.validShape() || !isUserChainNodeVisible(node))continue;
                 int[] cells=node.cells();
-                Point2D.Double a=getCandKoord(cells[0],node.getCandidate(),cellSize),b=getCandKoord(cells[cells.length-1],node.getCandidate(),cellSize);
+                // A minimum spanning tree connects every member, including non-collinear box groups.
+                // Fill the union once so adjoining bands do not compound their opacity.
+                java.awt.geom.Area band=new java.awt.geom.Area();
+                boolean[] connected=new boolean[cells.length];connected[0]=true;
+                for(int count=1;count<cells.length;count++) {
+                    double distance=Double.POSITIVE_INFINITY;int next=-1;
+                    java.awt.geom.Line2D.Double shortest=null;
+                    for(int i=0;i<cells.length;i++)if(connected[i])for(int j=0;j<cells.length;j++)if(!connected[j]) {
+                        Point2D.Double a=getCandKoord(cells[i],node.getCandidate(),cellSize),b=getCandKoord(cells[j],node.getCandidate(),cellSize);
+                        if(a.distanceSq(b)<distance){distance=a.distanceSq(b);next=j;shortest=new java.awt.geom.Line2D.Double(a,b);}
+                    }
+                    connected[next]=true;band.add(new java.awt.geom.Area(g.getStroke().createStrokedShape(shortest)));
+                }
                 g.setColor(appearance.getUserChainNodeColor(userChainNodeColor(node),appearance.getDefaultCellColor()));
-                g.draw(new java.awt.geom.Line2D.Double(a,b));
+                g.fill(band);
             }
         }finally{g.dispose();}
     }
@@ -3764,7 +4118,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             graphics.setClip(clip);
         }
 		boolean valid = !invalidUserChainRelations.contains(UserChainValidator.relationKey(from,to,segment.strong))
-                && (!Options.getInstance().isMarkInvalidLinks() || from.grouped() || to.grouped()
+                && (replayReadOnly || !Options.getInstance().isMarkInvalidLinks() || from.grouped() || to.grouped()
                     || isUserChainRelationValid(from, to, segment.strong));
 		Color semanticColor = segment.capturedColor != null
 				? segment.capturedColor : appearance.getUserChainLinkColor(segment.strong);
@@ -3903,7 +4257,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	private Color userChainNodeColor(UserChainNode node) {
-		return node.getColor() != null ? node.getColor() : cellZoomPanel.getPrimaryColor();
+		return node.getColor() != null ? node.getColor() : cellZoomPanel==null?Options.getInstance().getColoringColors()[0]:cellZoomPanel.getPrimaryColor();
 	}
 
     private boolean isUserChainRelationValid(UserChainNode first, UserChainNode second, boolean strong) {
@@ -4587,7 +4941,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		}
 		// items that might be null (and therefore wont be copied)
 		state.setSudoku(sudoku);
-		SolutionStep persistedStep = reasoningProposal == null ? step : null;
+		SolutionStep persistedStep = reasoningProposal == null && importedChainText == null ? step : null;
 		state.setStep(persistedStep);
 		if (copy) {
 			state.setSudoku(sudoku.clone());
@@ -5385,6 +5739,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			break;
 		}
 		
+        flushReplayBatch();
 		if (changed) {
 			redoStack.clear();
 			redoColoringStates.clear();
@@ -6181,8 +6536,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 		g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 		SudokuAppearancePalette appearance = SudokuAppearancePalette.forRendering(isPrint);
-        refreshAnnotationTimeline();annotationPaintLayer=0;
-		boolean renderGeneratedStep = step != null && (!isPrint || reasoningProposal == null);
+        refreshAnnotationTimeline();refreshPreviewFocus();annotationPaintLayer=0;
+        boolean authoredPreview = isAuthoredChainPreview();
+		boolean renderGeneratedStep = step != null && !authoredPreview && (!isPrint || reasoningProposal == null);
         java.awt.geom.Area generatedCandidateForeground=new java.awt.geom.Area();
 		
 		if (lastCursorChanged == -1) {
@@ -6614,7 +6970,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 								
 								for (Candidate cand : step.getCandidatesToDelete()) {
 									if (cand.getIndex() == index && cand.getValue() == i) {
-									hintColor = appearance.getHintDeleteBackgroundColor();
+									hintColor = isFocusedReasoningPreview() ? PREVIEW_DELETE_COLOR : appearance.getHintDeleteBackgroundColor();
 									candColor = appearance.getHintForegroundColor(
 											Options.getInstance().getHintCandidateDeleteColor(),
 											Options.HINT_CANDIDATE_DELETE_COLOR);
@@ -6891,11 +7247,13 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				}
 				
 				Chain chain = step.getChains().get(ci);
-				drawChain(g2, chain, cellSize, ddy, allBlack, appearance);
+                if(step==importedChainStep && importedChainText!=null)
+                    drawImportedChain(g2,importedChainText.chains().get(ci),ddy,appearance);
+                else drawChain(g2, chain, cellSize, ddy, allBlack, appearance);
 			}
 		}
 
-        if(includeAnnotations && renderGeneratedStep) {
+        if(includeAnnotations && (renderGeneratedStep || authoredPreview)) {
             annotationPaintLayer=2;
             drawLaterCandidateColors(g2,appearance,ddy);
             for(int c=0;c<81;c++)drawBoxReasoningCellUnderlay(g2,c,getX(c/9,c%9),getY(c/9,c%9),appearance,appearance.getDefaultCellColor());
@@ -6904,6 +7262,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             if(!isPrint){drawBoxReasoningDragRubberBand(g2);drawDeletionGesture(g2);}
             annotationPaintLayer=0;
         }
+        if (authoredPreview && !isPrint) drawAuthoredConclusions(g2, appearance, ddy);
+        if(includeAnnotations && !isPrint)drawChainOrigin(g2,appearance,ddy);
 		if (!isPrint) {
 			drawUnitHandles(appearance);
 		}
@@ -7024,6 +7384,54 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	 * @param ddy
 	 * @param allBlack
 	 */
+    /** Conclusions only: keep the authored drawing intact, without native proof overlays. */
+    private void drawAuthoredConclusions(Graphics2D graphics, SudokuAppearancePalette appearance, double diameter) {
+        Graphics2D g = (Graphics2D) graphics.create();
+        try {
+            g.setComposite(AlphaComposite.SrcOver);
+            g.setFont(candidateFont.deriveFont(Font.BOLD));
+            for (Candidate target : step.getCandidatesToDelete())
+                drawAuthoredConclusion(g, target.getIndex(), target.getValue(), diameter,
+                        PREVIEW_DELETE_COLOR);
+            if (step.isAuthoredPlacement()) {
+                for (int i = 0; i < step.getIndices().size(); i++)
+                    drawAuthoredConclusion(g, step.getIndices().get(i), step.getValues().get(i), diameter,
+                            appearance.getHintBackgroundColor());
+            }
+        } finally { g.dispose(); }
+    }
+
+    private void drawAuthoredConclusion(Graphics2D g, int cell, int digit, double diameter, Color color) {
+        if (!sudoku.isCandidate(cell, digit)) return;
+        Point2D.Double center = getCandKoord(cell, digit, cellSize);
+        double size = Math.max(diameter, candidateHeight);
+        g.setColor(color);
+        g.fill(new java.awt.geom.Ellipse2D.Double(center.x-size/2, center.y-size/2, size, size));
+        g.setColor(Color.WHITE);
+        FontMetrics metrics = g.getFontMetrics();
+        String text = Integer.toString(digit);
+        g.drawString(text, (float)(center.x-metrics.stringWidth(text)/2.0),
+                (float)(center.y+(metrics.getAscent()-metrics.getDescent())/2.0));
+    }
+
+    private void drawImportedChain(Graphics2D graphics,UserChain chain,double diameter,SudokuAppearancePalette appearance){
+        Graphics2D g=(Graphics2D)graphics.create();
+        try{
+            List<Point2D.Double> obstacles=new ArrayList<>();collectUserChainObstacles(chain,obstacles);
+            for(int i=0;i<chain.getStrongRelations().size();i++){
+                UserChainNode a=chain.getNodes().get(i),b=chain.getNodes().get((i+1)%chain.getNodes().size());
+                boolean strong=chain.getStrongRelations().get(i);
+                UserChainSegment segment=new UserChainSegment(a,b,strong,null);
+                ChainRouteGeometry.Route route=userChainRoute(segment,diameter,obstacles,0);
+                boolean invalid=Options.getInstance().isMarkInvalidLinks()&&importedInvalidRelations.contains(UserChainValidator.relationKey(a,b,strong));
+                float width=Math.max(1.8f,cellSize/30.0f)*(invalid?1.7f:1f);
+                g.setColor(invalid?appearance.getUserChainInvalidColor():appearance.getArrowColor());
+                g.setStroke(createUserChainStroke(strong,width,route.getStart().distance(route.getEnd())));
+                drawChainRoute(g,route,cellSize,diameter);
+            }
+        }finally{g.dispose();}
+    }
+
 	private void drawChain(Graphics2D g2, Chain chain, int cellSize, double ddy, boolean allBlack,
 			SudokuAppearancePalette appearance) {
 		// Calculate the coordinates of the startpoint for every link
@@ -7416,7 +7824,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		setSudoku(init, false);
 	}
 
-	public void setSudoku(String init, boolean alreadySolved) {
+    public void setSudoku(String init, boolean alreadySolved) {setSudoku(init,alreadySolved,true);}
+    void setSudoku(String init, boolean alreadySolved, boolean showValidationDialogs) {
 
 		mainFrame.resetSelectedHintTechnique();
 		generatedStepOwnerWillChange();
@@ -7463,13 +7872,13 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			// boolean unique = generator.validSolution(sudoku);
 			int anzSolutions = generator.getNumberOfSolutions(sudoku, 1);
 			if (anzSolutions == 0) {
-				JOptionPane.showMessageDialog(this,
+				if(showValidationDialogs) JOptionPane.showMessageDialog(this,
 						java.util.ResourceBundle.getBundle("intl/SudokuPanel").getString("SudokuPanel.no_solution"),
 						java.util.ResourceBundle.getBundle("intl/SudokuPanel").getString("SudokuPanel.invalid_puzzle"),
 						JOptionPane.ERROR_MESSAGE);
 				sudoku.setStatus(SudokuStatus.INVALID);
 			} else if (anzSolutions > 1) {
-				JOptionPane.showMessageDialog(this,
+				if(showValidationDialogs) JOptionPane.showMessageDialog(this,
 						java.util.ResourceBundle.getBundle("intl/SudokuPanel")
 								.getString("SudokuPanel.multiple_solutions"),
 						java.util.ResourceBundle.getBundle("intl/SudokuPanel").getString("SudokuPanel.invalid_puzzle"),
@@ -7477,7 +7886,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				sudoku.setStatus(SudokuStatus.MULTIPLE_SOLUTIONS);
 			} else {
 				if (!sudoku.checkSudoku()) {
-					JOptionPane.showMessageDialog(this,
+					if(showValidationDialogs) JOptionPane.showMessageDialog(this,
 							java.util.ResourceBundle.getBundle("intl/SudokuPanel")
 									.getString("SudokuPanel.wrong_values"),
 							java.util.ResourceBundle.getBundle("intl/SudokuPanel")
@@ -7577,12 +7986,14 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	 * solving stops, when the first training step has been reached.
 	 */
 	public void solveUpTo() {
+        replayBatch=new ArrayList<ReplayFrame>();
 		generatedStepOwnerWillChange();
 		SolutionStep actStep = null;
 		boolean changed = false;
 		undoStack.push(sudoku.clone());
 		GameMode gm = Options.getInstance().getGameMode();
 		
+        try {
 		while ((actStep = solver.getHint(sudoku, false)) != null) {
 			
 			if (actStep.isGiveUp()) {
@@ -7601,7 +8012,10 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			}
 			
 			// still here? do the step
-			getSolver().doStep(sudoku, actStep);
+			Sudoku2 replayBefore=sudoku.clone();byte[] replayProof=snapshotReplayProof(actStep);
+            long replayNow=System.currentTimeMillis();
+            getSolver().doStep(sudoku, actStep);
+            if(hasLogicalBoardStateChanged(replayBefore,sudoku))recordReplayProof(replayBefore,replayProof,replayNow,mainFrame.getReplayController()==null?0:mainFrame.getReplayController().elapsedMillis());
 			changed = true;
 		}
 			
@@ -7616,6 +8030,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			break;
 		}*/
 		
+        } finally { flushReplayBatch(); }
 		if (changed) {
 			redoStack.clear();
 		} else {
@@ -7645,12 +8060,14 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	private SolutionStep findNextStep(boolean singlesOnly, boolean previewStep) {
 		generatedStepOwnerWillChange();
 		step = solver.getHint(sudoku, singlesOnly);
+        if(previewStep)rememberReplayProof();
 		setChainInStep(-1, previewStep);
 		return step;
 	}
 
 	/** Applies every currently exposed Single and stops if one cannot change the board. */
 	boolean setAllSingles() {
+        replayBatch=new ArrayList<ReplayFrame>();
 		sudoku.rebuildInternalData();
 		boolean sudokuChanged = false;
 		boolean stoppedWithoutProgress = false;
@@ -7666,6 +8083,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			}
 			return sudokuChanged;
 		} finally {
+			flushReplayBatch();
 			finishSinglesBatch(sudokuChanged);
 			if (stoppedWithoutProgress) {
 				mainFrame.announceStatus("MainFrame.singles.noProgress");
@@ -7683,6 +8101,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		try {
 			isolatedSolver.setSudoku(sudoku.clone());
 			step = isolatedSolver.getStepFinder().getStep(type);
+            rememberReplayProof();
 		} finally {
 			SudokuSolverFactory.giveBack(isolatedSolver);
 		}
@@ -7695,6 +8114,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	public SolutionStep getNextStep(SolutionStep selectedStep) {
 		generatedStepOwnerWillChange();
 		step = selectedStep == null ? null : (SolutionStep) selectedStep.clone();
+        rememberReplayProof();
 		setChainInStep(-1);
 		repaint();
 		return step;
@@ -7703,6 +8123,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	public void setStep(SolutionStep step) {
 		generatedStepOwnerWillChange();
 		this.step = step;
+        rememberReplayProof();
 		setChainInStep(-1);
 		repaint();
 	}
@@ -7831,10 +8252,20 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				mainFrame.announceReasoningStatus("MainFrame.reasoning.preview");
 				return false;
 			}
+            byte[] proof=step==replayDisplayedReference&&replayDisplayedProof!=null?replayDisplayedProof:snapshotReplayProof(step);
+            long proofWall=step==replayDisplayedReference?replayDisplayWall:System.currentTimeMillis();
+            ReplayController replay=mainFrame.getReplayController();
+            long proofElapsed=step==replayDisplayedReference?replayDisplayElapsed:replay==null?0:replay.elapsedMillis();
+            boolean external=step==importedChainStep && importedChainText!=null;
+            if(external && (!importedChainText.hasConclusion() || !importedChainText.matches(sudoku)))return false;
 			generatedStepOwnerWillChange();
 			Sudoku2 before = sudoku.clone();
 			try {
-				if(step.isAuthoredPlacement()) {
+                if(external) {
+                    // Apply exactly the imported claims through native board operations, in one undo transaction.
+                    for(Candidate c:step.getCandidatesToDelete())sudoku.delCandidate(c.getIndex(),c.getValue());
+                    for(int i=0;i<step.getValues().size();i++)sudoku.setCell(step.getIndices().get(i),step.getValues().get(i));
+                }else if(step.isAuthoredPlacement()) {
                     SolutionStep executable=(SolutionStep)step.clone();executable.setType(SolutionType.FORCING_CHAIN_VERITY);
                     getSolver().doStep(sudoku,executable);
                 }else getSolver().doStep(sudoku, step);
@@ -7848,6 +8279,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			}
 			undoStack.push(before);
 			redoStack.clear();
+            recordReplayProof(before,proof,proofWall,proofElapsed);
 			clearExecutedStep();
 			if (refreshUi) {
 				checkProgress();

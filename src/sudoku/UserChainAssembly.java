@@ -8,7 +8,11 @@ final class UserChainAssembly {
     static final class Result {
         final UserChain chain;
         final UserChainValidator.Problem problem;
-        Result(UserChain chain, UserChainValidator.Problem problem) {this.chain=chain;this.problem=problem;}
+        final List<UserChainNode> componentAnchors;
+        Result(UserChain chain, UserChainValidator.Problem problem) {this(chain,problem,Collections.<UserChainNode>emptyList());}
+        Result(UserChain chain, UserChainValidator.Problem problem,List<UserChainNode> anchors) {
+            this.chain=chain;this.problem=problem;this.componentAnchors=Collections.unmodifiableList(anchors);
+        }
     }
     private static final class Edge {
         final int a,b;final boolean strong;final Color color;
@@ -36,6 +40,15 @@ final class UserChainAssembly {
             }
         }
         if(nodes.size()<2)return new Result(null,UserChainValidator.Problem.NONE);
+        List<UserChainNode> anchors=new ArrayList<>();Set<Integer> connected=new HashSet<>();
+        for(int seed:nodes.keySet())if(connected.add(seed)) {
+            anchors.add(nodes.get(seed).copy());ArrayDeque<Integer> pending=new ArrayDeque<>();pending.add(seed);
+            while(!pending.isEmpty())for(Edge edge:links.get(pending.remove())) {
+                if(connected.add(edge.a))pending.add(edge.a);
+                if(connected.add(edge.b))pending.add(edge.b);
+            }
+        }
+        if(anchors.size()>1)return new Result(null,UserChainValidator.Problem.DISCONNECTED_INPUT,anchors);
         int endpoints=0,start=nodes.keySet().iterator().next();
         for(Map.Entry<Integer,List<Edge>> entry:links.entrySet()) {
             if(entry.getValue().size()>2)return fail(UserChainValidator.Problem.BRANCHED_INPUT);

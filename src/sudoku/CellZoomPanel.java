@@ -83,6 +83,7 @@ public class CellZoomPanel extends JPanel implements ActionListener {
 	private Color normButtonBackground = null;
 	private SudokuPanel sudokuPanel;
 	private long lastPaletteWheelAt;
+    private final AnnotationWheelGate paletteWheelGate = new AnnotationWheelGate();
 	private AnnotationPaletteOwner effectivePaletteOwner = AnnotationPaletteOwner.CANDIDATE_COLORING;
 	private int colorImageHeight = -1;
 	private Icon[] colorKuIcons = new Icon[9];
@@ -995,15 +996,14 @@ public class CellZoomPanel extends JPanel implements ActionListener {
 
 	/** Moves one step through the paired dark/light coloring palette. */
 	void cyclePaletteColor(int wheelRotation, boolean secondary) {
-		if (wheelRotation == 0) {
-			return;
-		}
-		long now = System.currentTimeMillis();
-		if (now - lastPaletteWheelAt < 180) {
-			return;
-		}
-		lastPaletteWheelAt = now;
-        selectPaletteGroup((getPaletteGroup() + (wheelRotation > 0 ? 1 : -1) + 6) % 6);
+        cyclePaletteColor((double) wheelRotation);
+    }
+
+    void cyclePaletteColor(double rotation) {
+        if (lastPaletteWheelAt == 0) paletteWheelGate.reset();
+        lastPaletteWheelAt = System.currentTimeMillis();
+        int step = paletteWheelGate.step(rotation, lastPaletteWheelAt);
+        if (step != 0) selectPaletteGroup((getPaletteGroup() + step + 6) % 6);
     }
 
     void selectPaletteGroup(int group) {

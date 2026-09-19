@@ -40,9 +40,16 @@ final class UserChainValidator {
             }
         }
         Result invalid = null;
+        Map<String,solver.Als> alsPremises=new HashMap<>();
         for (int i=0;i<edges;i++) {
             Boolean strong=chain.getStrongRelations().get(i);
-            if(strong==null || !(strong ? strong(board,nodes[i],nodes[(i+1)%n]) : weak(nodes[i],nodes[(i+1)%n]))) {
+            UserChainNode a=nodes[i],b=nodes[(i+1)%n];
+            boolean valid=strong!=null && (strong ? ordinaryStrong(board,a,b) : weak(a,b));
+            if(Boolean.TRUE.equals(strong) && !valid && a.getCandidate()!=b.getCandidate()) {
+                solver.Als als=NativeAlsStrongLinks.forBoard(board).find(a,b);
+                if(als!=null){valid=true;alsPremises.put(encodedRelation(a.encoded(false),b.encoded(false)),als);}
+            }
+            if(!valid) {
                 if(invalid==null) invalid=new Result(Status.INVALID,i,steps,
                     Boolean.TRUE.equals(strong)?Problem.INVALID_STRONG:Problem.INVALID_WEAK);
                 invalid.invalidRelations.add(relationKey(nodes[i],nodes[(i+1)%n],Boolean.TRUE.equals(strong)));
@@ -59,6 +66,7 @@ final class UserChainValidator {
             if (negativeProof != null) {
                 deletions.addCandidateToDelete(cell, digit);
                 deletions.addChain(0, negativeProof.length - 1, negativeProof);
+                addAlsPremises(deletions,negativeProof,alsPremises);
             }
             if (seen.contains(target)) {
                 int[] positiveProof = proof(chain, nodes, target, false);
@@ -66,6 +74,7 @@ final class UserChainValidator {
                     SolutionStep placement = new SolutionStep(type);
                     placement.addIndex(cell);placement.addValue(digit);placement.setAuthoredPlacement(true);
                     placement.addChain(0, positiveProof.length - 1, positiveProof);
+                    addAlsPremises(placement,positiveProof,alsPremises);
                     if (!placement.getCandidatesToDelete().isEmpty() || !placement.getValues().isEmpty()) steps.add(placement);
                 }
             }
@@ -128,6 +137,29 @@ final class UserChainValidator {
         return true;
     }
     static boolean strong(Sudoku2 board, UserChainNode a, UserChainNode b) {
+        return ordinaryStrong(board,a,b) || a.getCandidate()!=b.getCandidate()
+                && NativeAlsStrongLinks.forBoard(board).find(a,b)!=null;
+    }
+    private static String encodedRelation(int a,int b) {
+        a=Chain.setSStrong(a,false);b=Chain.setSStrong(b,false);
+        return Math.min(a,b)+":"+Math.max(a,b);
+    }
+    private static void addAlsPremises(SolutionStep step,int[] proof,Map<String,solver.Als> premises) {
+        for(int i=1;i<proof.length;i++) {
+            if(!Chain.isSStrong(proof[i]) || Chain.isSStrong(proof[i-1]))continue;
+            solver.Als als=premises.get(encodedRelation(proof[i-1],proof[i]));
+            if(als==null)continue;
+            boolean present=false;
+            for(AlsInSolutionStep existing:step.getAlses()) {
+                if(existing.getIndices().size()==als.indices.size() && existing.getIndices().containsAll(toList(als.indices)))present=true;
+            }
+            if(!present)step.addAls(als.indices,als.candidates);
+        }
+    }
+    private static List<Integer> toList(SudokuSet set) {
+        List<Integer> result=new ArrayList<>();for(int i=0;i<set.size();i++)result.add(set.get(i));return result;
+    }
+    private static boolean ordinaryStrong(Sudoku2 board, UserChainNode a, UserChainNode b) {
         if(!a.grouped() && !b.grouped())return strong(board,a.getCellIndex()*10+a.getCandidate(),b.getCellIndex()*10+b.getCandidate());
         if(!weak(a,b) || a.getCandidate()!=b.getCandidate())return false;
         Set<Integer> covered=new HashSet<Integer>();

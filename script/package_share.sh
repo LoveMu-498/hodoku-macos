@@ -36,7 +36,14 @@ if [[ "$MODE" == --local ]]; then
         > "$HODOKU_DIST_DIR/Java源码获取说明.txt"
 else
     JAVA_ATTACHMENT='Temurin-21.0.12.1+1-corresponding-source.tar.gz'
-    COPYFILE_DISABLE=1 tar -czf "$RELEASE/$JAVA_ATTACHMENT" -C "$RELEASE" java-source-materials
+    PYTHONPATH="$ROOT_DIR/script" python3 - "$RELEASE" "$JAVA_ATTACHMENT" <<'PYCODE'
+import sys, tarfile
+from pathlib import Path
+from prepare_github_source import public_tar_metadata
+root = Path(sys.argv[1])
+with tarfile.open(root / sys.argv[2], 'w:gz') as archive:
+    archive.add(root / 'java-source-materials', arcname='java-source-materials', filter=public_tar_metadata)
+PYCODE
     cp "$HODOKU_DIST_DIR/HoDoKu-source.tar.gz" "$RELEASE/HoDoKu-source.tar.gz"
     printf 'GitHub Release 配套材料：请从本 DMG 所在的同一次 Release 下载 %s。\n分享者必须将该附件与 DMG 同时提供，不要只转发 DMG。\n' \
         "$JAVA_ATTACHMENT" > "$HODOKU_DIST_DIR/Java源码获取说明.txt"

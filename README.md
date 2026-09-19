@@ -5,17 +5,27 @@
 原生交互、标注与画链功能，以及自包含应用打包。它不是上游官方发布，也不代表上游认可。
 
 主应用延续 **GPL-3.0-or-later**，完整许可见 [COPYING](COPYING)。保留原作者与后续贡献者
-的版权、许可及无担保声明；修改范围与日期见 [CHANGES.md](CHANGES.md)，来源及待核实部分见
+的版权、许可及无担保声明；修改范围与日期见 [CHANGES.md](CHANGES.md)，来源说明见
 [UPSTREAM.md](UPSTREAM.md)，独立组件见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 使用、修改、商用与再分发均遵循原 GPL 条款，不增加额外用途限制。
+本项目通过来源、修改记录及许可文件说明继承关系；未声称获得上游批准、合作或背书，
+也不把联系或等待上游回复设为遵循许可证发布的前提。
 
 源码公开与安装包发行的准备步骤见 [发布约定](docs/open-source-release.md)。
 公开源码：[LoveMu-498/hodoku-macos](https://github.com/LoveMu-498/hodoku-macos)。
 下载安装包：[Releases](https://github.com/LoveMu-498/hodoku-macos/releases)。
 
+## 2.3.2 亮点
+
+- 单次解题回放：时间轴、连续播放、证明与盘面状态、保存点跳转；可从指定帧开始新的解题。
+- 自包含 `.hrep` 文件导入导出，支持 macOS 系统分享面板；接收方无需你的本地记录目录。
+- 修复回放开发阶段的按钮、文件弹窗输入问题，改进画链起点提示、链文字互转及涂鸦滚轮操作。
+
+[版本推进与 bug 修复说明](docs/releases/2.3.2.md) · [回放与分享指南](docs/replay-sharing.md)
+
 ## macOS 分享版
 
-运行 `bash script/package_share.sh` 生成内置独立 Java 的 Apple Silicon DMG，
+需要制作分享版本时，运行 `bash script/package_share.sh` 生成内置独立 Java 的 Apple Silicon DMG，
 包含中文安装说明、Applications 拖拽入口、许可和对应源码。接收者无需安装 Java 或 Homebrew。
 详见 [构建与验证说明](docs/distribution/README.md)。下方为原上游说明。
 

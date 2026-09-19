@@ -62,7 +62,7 @@ class PublicSourceTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        directories = {'src', 'test', 'script', 'docs/adr', 'docs/distribution'}
+        directories = {'src', 'test', 'script', 'docs/adr', 'docs/distribution', 'docs/releases'}
         for name in source.PATHS:
             path = self.root / name
             if name in directories:

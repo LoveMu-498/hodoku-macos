@@ -43,14 +43,14 @@ public class UserChainNode {
     public boolean validShape() {
         int[] c = cells();
         if (candidate < 1 || candidate > 9 || c.length < 1 || c.length > 3) return false;
-        boolean row = true, col = true;
+        boolean row = true, col = true, box = true;
         for (int i=0;i<c.length;i++) {
             if (c[i]<0 || c[i]>=81 || (i>0 && c[i]==c[i-1])) return false;
-            if (Sudoku2.getBlock(c[i])!=Sudoku2.getBlock(c[0])) return false;
+            box &= Sudoku2.getBlock(c[i])==Sudoku2.getBlock(c[0]);
             row &= Sudoku2.getRow(c[i])==Sudoku2.getRow(c[0]);
             col &= Sudoku2.getCol(c[i])==Sudoku2.getCol(c[0]);
         }
-        return row || col;
+        return row || col || box;
     }
     public int encoded(boolean strong) {
         int[] c=cells();

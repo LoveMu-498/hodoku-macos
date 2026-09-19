@@ -11,7 +11,7 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PATHS = ('src', 'test', 'script', 'docs/distribution',
-         'docs/open-source-release.md', 'README.md', 'COPYING',
+         'docs/open-source-release.md', 'docs/releases', 'docs/replay-sharing.md', 'docs/replay-file-format.md', 'README.md', 'COPYING',
          'UPSTREAM.md', 'CHANGES.md', 'THIRD_PARTY_NOTICES.md', '.gitignore')
 EXCLUDED = {'__pycache__', '.DS_Store'}
 
@@ -31,12 +31,21 @@ def source_files(root):
                 raise ValueError('Review symlink before public export: ' + str(relative))
             if not path.is_file():
                 continue
-            if path.name.startswith('.env') or path.suffix in ('.hcfg', '.pem', '.key', '.jar', '.zip', '.dmg'):
+            if path.name.startswith('.env') or path.suffix in ('.hcfg', '.hrep', '.checkpoint', '.pem', '.key', '.p12', '.pfx', '.jar', '.zip', '.dmg'):
                 raise ValueError('Unexpected private/binary file in source selection: ' + str(relative))
             if path.stat().st_size > 50 * 1024 * 1024:
                 raise ValueError('Unexpected large file in source selection: ' + str(relative))
             files.append(path)
     return sorted(set(files))
+
+
+def public_tar_metadata(info):
+    """Do not embed the local account name, uid or private timestamps in source archives."""
+    info.uid = info.gid = 0
+    info.uname = info.gname = ''
+    info.mtime = 0
+    info.pax_headers = {}
+    return info
 
 
 def export(root, output):
@@ -58,10 +67,10 @@ def export(root, output):
     archive_path = output / 'HoDoKu-source.tar.gz'
     with tarfile.open(archive_path, 'w:gz') as archive:
         for path in files:
-            archive.add(path, arcname=str(path.relative_to(root)), recursive=False)
+            archive.add(path, arcname=str(path.relative_to(root)), recursive=False, filter=public_tar_metadata)
         instructions = root / 'docs/distribution/PUBLIC_AGENTS.md'
         if instructions.is_file():
-            archive.add(instructions, arcname='AGENTS.md', recursive=False)
+            archive.add(instructions, arcname='AGENTS.md', recursive=False, filter=public_tar_metadata)
             manifest['files']['AGENTS.md'] = hashlib.sha256(instructions.read_bytes()).hexdigest()
         content = (json.dumps(manifest, indent=2) + '\n').encode()
         info = tarfile.TarInfo('SOURCE_SNAPSHOT.json')

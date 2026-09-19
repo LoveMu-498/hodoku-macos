@@ -1,6 +1,11 @@
 # macOS 独立分享包
 
-运行 `bash script/package_share.sh`。脚本在项目 `build/toolchains` 缓存官方 Temurin
+日常构建使用下文“普通构建”命令生成 `.app`，不自动制作 DMG 或安装替换。
+根据当前明确授权，选择仅交付独立 app（由用户决定替换/并存），或保留旧包后替换指定
+安装位置；已获替换授权不重复询问，未明确时先构建再确认。保护现有用户数据，正常退出
+运行实例，并存名称不代表配置隔离。上传、合并与版本发布另按明确授权执行。
+
+只有用户明确要求制作分享版本时，才运行 `bash script/package_share.sh`。脚本在项目 `build/toolchains` 缓存官方 Temurin
 21.0.12.1+1 ARM64 压缩包并校验固定 SHA-256，不安装系统 Java，不修改系统 Java 选择。
 需要 macOS Apple Silicon、Python 3.9+、Xcode Command Line Tools，以及可用的桌面会话。
 首次下载约 200 MB。官方发行入口：https://adoptium.net/installation

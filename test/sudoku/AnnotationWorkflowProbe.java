@@ -22,7 +22,7 @@ public final class AnnotationWorkflowProbe {
   cells=(Map<?,?>)read("coloringMap");nums=(Map<?,?>)read("coloringCandidateMap");check(cells.size()==1,"erase undo");rectangle(cand(0,3),3,5);check(cells.size()==1&&nums.isEmpty(),"candidate-only erase");
   p.setAnnotationTool(AnnotationTool.BOX_SELECTION);
   @SuppressWarnings("unchecked") java.util.List<SudokuSet> groups=(java.util.List<SudokuSet>)read("boxReasoningGroups");groups.get(0).add(0);groups.get(1).add(0);
-  click(cell(0),3,0);check(p.getBoxReasoningFootprint().isEmpty(),"right remove all colors");click(cell(0),3,0);check(p.getBoxReasoningFootprint().contains(0),"right add");
+  click(cell(0),3,0);check(p.getBoxReasoningFootprint().contains(0),"right inspection preserves boxes");click(cell(0),1,0);check(p.getBoxReasoningFootprint().isEmpty(),"left removes all colors");click(cell(0),1,0);check(p.getBoxReasoningFootprint().contains(0),"left adds");
   p.setAnnotationTool(AnnotationTool.DOODLE);click(cand(10,3),3,0);check(p.getDoodleStrokeCount()==1,"candidate circle missing");
   @SuppressWarnings("unchecked") java.util.List<DoodleStroke> strokes=(java.util.List<DoodleStroke>)read("doodleStrokes");check(strokes.get(0).getPoints().size()==49,"circle sample shape");call("undoDoodle");check(p.getDoodleStrokeCount()==0,"circle undo");call("redoDoodle");
   p.setAnnotationTool(AnnotationTool.FREE_CHAIN);UserChain c=GroupedChainProbe.chain(false,new UserChainNode[]{GroupedChainProbe.node(3,9,10,11),GroupedChainProbe.node(3,22)},true);c.setActive(true);Field ac=SudokuPanel.class.getDeclaredField("activeUserChain");ac.setAccessible(true);ac.set(p,c);
