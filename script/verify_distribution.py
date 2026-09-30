@@ -42,6 +42,11 @@ cli('help', ['/?'], 'Usage: java -Xmx512m -jar hodoku.jar')
 cli('solve', ['530070000600195000098000060800060003400803001700020006060000280000419005000080079',
               '/o', 'stdout'], '0 puzzles not solved logically!')
 
+# This helper inspects only windows owned by the test process; no screen capture.
+window_probe = sandbox / 'native-window-probe'
+subprocess.run(['/usr/bin/xcrun', 'swiftc', str(Path(__file__).with_name('verify_native_window.swift')),
+                '-o', str(window_probe)], check=True, capture_output=True, timeout=60)
+
 # Launch the actual app executable twice, through native initialization and Quit.
 for attempt in (1, 2):
     log = sandbox / 'tmp/hodoku.log'
@@ -60,7 +65,25 @@ for attempt in (1, 2):
                 time.sleep(.25)
             if not ready:
                 raise RuntimeError('Native Aqua startup did not finish')
-            time.sleep(2)
+            # Aqua is configured before MainFrame exists. CoreGraphics sees the
+            # actual on-screen window even when Java exposes no AX window entry.
+            window_ready = False
+            window_checks = []
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                if process.poll() is not None:
+                    raise RuntimeError('GUI exited before showing its window')
+                state = subprocess.run([str(window_probe), str(process.pid)],
+                                       capture_output=True, text=True, timeout=10)
+                window_checks.append({'returncode': state.returncode, 'count': state.stdout.strip()})
+                if state.returncode == 0 and state.stdout.strip().isdigit() and int(state.stdout.strip()) > 0:
+                    window_ready = True
+                    break
+                time.sleep(.25)
+            (report / ('window-ready-' + str(attempt) + '.json')).write_text(json.dumps(window_checks, indent=2) + '\n')
+            if not window_ready:
+                raise RuntimeError('Packaged application did not show a native window')
+            time.sleep(1)
             if process.poll() is not None:
                 raise RuntimeError('GUI exited after native initialization')
             # Send native Quit by PID, so an installed copy with the same bundle
@@ -95,7 +118,7 @@ if '/opt/homebrew/' in loaded or '/usr/local/' in loaded:
 (report / 'runtime-verification.json').write_text(json.dumps({
     'passed': True, 'macos': subprocess.check_output(['sw_vers', '-productVersion'], text=True).strip(),
     'architecture': os.uname().machine, 'isolated_state': str(sandbox),
-    'checks': ['packaged launcher help', 'CLI solve', 'Aqua and font library startup',
+    'checks': ['packaged launcher help', 'CLI solve', 'Aqua and font library startup', 'visible window for the test PID',
                'native Quit persistence', 'relaunch', 'clean PATH without external Java'],
     'limits': ['Not an M1 or older macOS hardware test', 'Not Gatekeeper notarization validation']
 }, indent=2) + '\n')

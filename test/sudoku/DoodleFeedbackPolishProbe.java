@@ -27,6 +27,8 @@ public final class DoodleFeedbackPolishProbe {
    click(1,0,a);check(marks().size()==1&&marks().get(0).getCandidateMarkKind()==DoodleStroke.MARK_FALSE_CROSS,"double left stray circle");
    check(((Integer)invoke("mappedClickInterval",new Class[]{}))==200,"double window not 200");
    float scale=(Float)invoke("candidateMarkScale",new Class[]{DoodleStroke.class},marks().get(0));check(Math.abs(scale-.62)<.001,"cross scale");
+   // Measure the cross itself; its new opaque green start contour is a separate state.
+   p.cancelDoodleHypothesisStarts();
    BufferedImage faded=ink();int max=0;for(int y=0;y<810;y++)for(int x=0;x<810;x++)max=Math.max(max,faded.getRGB(x,y)>>>24);check(max>80&&max<170,"cross not translucent: "+max);
    check((Boolean)invoke("fadeCurrentDoodleCross",new Class[]{int.class,int.class},0,1),"candidate not faded");
    set("lastMousePosition",new Point(1,1));key(KeyEvent.VK_ALT,true);render();

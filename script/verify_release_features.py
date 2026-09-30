@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run sequential release probes against the packaged JAR/runtime with isolated state."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,13 +10,16 @@ import subprocess
 import tempfile
 import time
 
+RETIRED_PROBES = {
+    'TplsABEraseProbe': 'Historical A/B trial requires first right click to wait; replaced by immediate erasure/rollback and continuous-erasure probes',
+    'TplsInputMappingProbe': 'Historical delayed-click cancellation and free-eraser toolbar contract; superseded by immediate-click, current gesture and preview probes',
+}
+
 PROBES = [
     'TplsImmediateCoverageProbe',
     'ImmediateMappedClickProbe',
     'AnnotationDispatchDeadlineProbe',
-    'TplsInputMappingProbe',
     'TplsGestureRefinementProbe',
-    'TplsABEraseProbe',
     'ContinuousEraserWheelProbe',
     'DoodleFeedbackPolishProbe',
     'ProjectedDeletionAndBoxPriorityProbe',
@@ -84,6 +88,7 @@ def main():
     parser.add_argument('--test-classes', type=Path, required=True)
     parser.add_argument('--report-dir', type=Path, required=True)
     parser.add_argument('--only', nargs='+', choices=PROBES)
+    parser.add_argument('--keep-going', action='store_true', help='Collect independent probe failures before returning nonzero')
     parser.add_argument('--ui-element-probes', action='store_true', help='Set UIElement for test JVMs only; never changes the delivered launcher')
     args = parser.parse_args()
     app = args.app.resolve()
@@ -134,13 +139,14 @@ def main():
                   'seconds':round(time.monotonic()-start,2)}
         results.append(result)
         (report/'results.json').write_text(json.dumps({'passed':all(r['exit_code']==0 for r in results),
-                'completed':len(results), 'results':results,
+                'completed':len(results), 'results':results, 'retired_probes':RETIRED_PROBES,
+                'jar_sha256':hashlib.sha256(jar.read_bytes()).hexdigest(), 'ui_element_for_test_jvms':args.ui_element_probes,
                 'scope':'Packaged JAR and bundled Java; isolated local state; no real recipient sharing',
                 'limits':'Not full-platform testing or real sleep; clipboard-mutating probes not run here'},indent=2)+'\n')
         print(('PASS' if code==0 else 'FAIL')+': '+name,flush=True)
-        if code != 0:
+        if code != 0 and not args.keep_going:
             return 1
-    return 0
+    return 0 if all(r['exit_code']==0 for r in results) else 1
 
 
 if __name__ == '__main__':

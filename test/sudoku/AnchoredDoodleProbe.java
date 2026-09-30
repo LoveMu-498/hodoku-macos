@@ -18,13 +18,13 @@ public final class AnchoredDoodleProbe {
  static Point2D center(SudokuPanel p,int cell,int d)throws Exception{return (Point2D)call(p,"getCandKoord",new Class[]{int.class,int.class,int.class},cell,d,(int)read(p,"cellSize"));}
  static AffineTransform transform(SudokuPanel p,DoodleStroke s)throws Exception{return (AffineTransform)call(p,"doodleProjection",new Class[]{DoodleStroke.class,int.class,int.class},s,p.getWidth(),p.getHeight());}
  static List<DoodleStroke> strokes(SudokuPanel p)throws Exception{return (List<DoodleStroke>)read(p,"doodleStrokes");}
- static void click(SudokuPanel p,Point pt){for(int id:new int[]{MouseEvent.MOUSE_PRESSED,MouseEvent.MOUSE_RELEASED})p.dispatchEvent(new MouseEvent(p,id,System.currentTimeMillis(),0,pt.x,pt.y,1,false,MouseEvent.BUTTON3));}
+ static void click(SudokuPanel p,Point pt){for(int id:new int[]{MouseEvent.MOUSE_PRESSED,MouseEvent.MOUSE_RELEASED})p.dispatchEvent(new MouseEvent(p,id,System.currentTimeMillis(),0,pt.x,pt.y,1,false,MouseEvent.BUTTON1));}
  public static void main(String[] args)throws Exception{
   Throwable[] failure={null};SwingUtilities.invokeAndWait(()->{MainFrame f=null;try{
    UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
    f=new MainFrame(null);f.setSize(1100,850);f.setVisible(true);SudokuPanel p=f.getSudokuPanel();p.setSudoku((String)null);p.setShowCandidates(true);p.setAnnotationTool(AnnotationTool.DOODLE);p.getCellZoomPanel().setPrimaryColor(Color.MAGENTA); // palette may snap; use distinct recorded color below
    paint(p);Point2D c=center(p,2,3);click(p,new Point((int)c.getX(),(int)c.getY()));
-   check(strokes(p).size()==1,"right click did not create a circle");DoodleStroke circle=strokes(p).get(0);circle.setColor(Color.MAGENTA);int circleGroup=circle.getThoughtGroup();check(circleGroup>=0&&circleGroup<6,"circle missed its selected thought group");
+   check(strokes(p).size()==1,"left click did not create a circle");DoodleStroke circle=strokes(p).get(0);circle.setColor(Color.MAGENTA);int circleGroup=circle.getThoughtGroup();check(circleGroup>=0&&circleGroup<6,"circle missed its selected thought group");
    check(circle.getAnchorCell()==2&&circle.getAnchorDigit()==3,"candidate identity missing");
    DoodleStroke cross=new DoodleStroke(Color.CYAN,.03f);cross.setAnchorCell(2);cross.setAnchorDigit(3);cross.setCandidateMarkKind(DoodleStroke.MARK_FALSE_CROSS);cross.setThoughtGroup(circleGroup);
    for(double[] point:new double[][]{{-.12,-.12},{.12,.12},{.12,-.12},{-.12,.12}})cross.getPoints().add(new DoodlePoint(point[0],point[1]));

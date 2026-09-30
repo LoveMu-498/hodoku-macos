@@ -18,10 +18,10 @@ public final class GeneralizedChainInteractionProbe {
             click(1,InputEvent.SHIFT_DOWN_MASK,at(40,5));check(active().getNodes().get(0).atoms().length==10,"mixed Shift rejected");
             String whole=active().getNodes().get(0).key();p.undoCurrentAnnotation();check(active().getNodes().get(0).atoms().length==9,"mixed undo");p.redoCurrentAnnotation();check(active().getNodes().get(0).key().equals(whole),"mixed redo");
             click(1,0,at(80,9));ChainOriginProbe.render("generalized-large-mixed");
-            click(3,InputEvent.SHIFT_DOWN_MASK,at(80,9));
+            p.finishCurrentUserChain(); // Current toolbar end-segment action.
             click(1,InputEvent.META_DOWN_MASK,at(0,3));check(active().getNodes().get(0).atoms().length==1,"Command did not select single atom");
             check(done().get(0).getNodes().get(0).atoms().length==10,"Command split original group");
-            reset();click(1,0,at(0,1));click(1,0,at(1,1));click(1,0,at(2,1));click(3,InputEvent.SHIFT_DOWN_MASK,at(2,1));
+            reset();click(1,0,at(0,1));click(1,0,at(1,1));click(1,0,at(2,1));p.finishCurrentUserChain();
             click(1,0,at(3,1));click(1,0,at(2,1));
             check(done().isEmpty()&&active().getNodes().size()==4,"endpoint reconnect did not assemble path");
             check(p.currentChainOrigin().contains(0,1)&&active().getNodes().get(0).contains(3,1),"reconnect endpoint orientation");
@@ -32,7 +32,7 @@ public final class GeneralizedChainInteractionProbe {
             ChainOriginProbe.render("generalized-rejoined");
             reset();done().add(GroupedChainProbe.chain(false,new UserChainNode[]{GeneralizedChainProbe.atoms(1,12),GeneralizedChainProbe.atoms(405)},true));
             done().add(GroupedChainProbe.chain(false,new UserChainNode[]{GeneralizedChainProbe.atoms(1,23),GeneralizedChainProbe.atoms(506)},false));
-            click(1,0,at(0,1));MenuElement[] path=MenuSelectionManager.defaultManager().getSelectedPath();check(path.length>0,"overlapping group chooser missing");
+            click(1,0,at(0,1));p.flushMappedClick();MenuElement[] path=MenuSelectionManager.defaultManager().getSelectedPath();check(path.length>0,"overlapping group chooser missing");
             JPopupMenu popup=(JPopupMenu)path[0];check(popup.getComponentCount()==3,"chooser lacks single and both full groups");
             ((JMenuItem)popup.getComponent(2)).setArmed(true);ChainOriginProbe.render("generalized-choice-hover");
             ((JMenuItem)popup.getComponent(2)).doClick();popup.setVisible(false);check(active().getNodes().get(0).key().equals(GeneralizedChainProbe.atoms(1,23).key()),"chooser changed proposition");

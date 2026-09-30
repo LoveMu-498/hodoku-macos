@@ -9,10 +9,9 @@ public final class AnnotationTimelineProbe {
  static void require(boolean b,String m){if(!b)throw new AssertionError(m);}
  static void shortcuts()throws Exception{
   ChainEditingProbe.install(ChainEditingProbe.fixture());
-  ChainEditingProbe.click(3,InputEvent.CTRL_DOWN_MASK,new Point(750,750));require(ChainEditingProbe.active().getStrongRelations().size()==1,"Control-right did not retreat");p.undoCurrentAnnotation();require(ChainEditingProbe.active().getStrongRelations().size()==2,"retreat undo");
-  ChainEditingProbe.drag(3,InputEvent.CTRL_DOWN_MASK,new Point(50,50),new Point(700,700));require(ChainEditingProbe.active().getStrongRelations().equals(Arrays.asList(true,false)),"Control-right drag modified");
-  ChainEditingProbe.event(MouseEvent.MOUSE_PRESSED,3,InputEvent.CTRL_DOWN_MASK,new Point(50,50));ChainEditingProbe.event(MouseEvent.MOUSE_DRAGGED,0,InputEvent.CTRL_DOWN_MASK|InputEvent.BUTTON3_DOWN_MASK,new Point(300,300));ChainEditingProbe.event(MouseEvent.MOUSE_RELEASED,3,InputEvent.CTRL_DOWN_MASK,new Point(50,50));require(ChainEditingProbe.active().getStrongRelations().size()==2,"out-and-back drag deleted");
-  ChainEditingProbe.click(3,InputEvent.SHIFT_DOWN_MASK,new Point(50,50));require(ChainEditingProbe.active()==null,"finish segment");call("removeLastUserChainNode");require(ChainEditingProbe.done().get(0).getStrongRelations().size()==1,"ended chain Backspace");p.undoCurrentAnnotation();require(ChainEditingProbe.done().get(0).getStrongRelations().size()==2,"ended undo");
+  p.finishCurrentUserChain();require(ChainEditingProbe.active()==null,"finish segment");
+  call("removeLastUserChainNode");require(ChainEditingProbe.active()!=null&&ChainEditingProbe.active().getStrongRelations().size()==1,"ended segment retreat/continuation");
+  p.undoCurrentAnnotation();require(ChainEditingProbe.active()==null&&ChainEditingProbe.done().get(0).getStrongRelations().size()==2,"ended retreat undo");
  }
  public static void main(String[] args)throws Exception{try{
   edt(()->{f=new MainFrame(null);p=f.getSudokuPanel();p.setSudoku((String)null);p.getSudoku().set(ChainAdvisoryProbe.board(true));p.setShowCandidates(true);p.setSize(810,810);p.setAnnotationTool(AnnotationTool.FREE_CHAIN);paint("initial");shortcuts();
