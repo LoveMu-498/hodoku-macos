@@ -248,7 +248,12 @@ public final class NativeReasoningMatcherProbe {
 		StepConfig nakedConfig = SolutionType.NAKED_PAIR.getStepConfig();
 		int oldHiddenIndex = hiddenConfig.getIndex();
 		int oldNakedIndex = nakedConfig.getIndex();
+		int oldHiddenScore = hiddenConfig.getBaseScore();
 		try {
+			require(NativeReasoningMatcher.matchBox(Arrays.asList(naked, hidden), board,
+					cells(0, 1)).getStep() == naked,
+                    "Windows naked-pair priority lost to score");
+			hiddenConfig.setBaseScore(nakedConfig.getBaseScore());
 			hiddenConfig.setIndex(200);
 			nakedConfig.setIndex(100);
 			NativeReasoningMatcher.Match priority = NativeReasoningMatcher.matchBox(
@@ -258,12 +263,26 @@ public final class NativeReasoningMatcherProbe {
 			hiddenConfig.setIndex(100);
 			NativeReasoningMatcher.Match tied = NativeReasoningMatcher.matchBox(
 					Arrays.asList(hidden, naked), board, cells(0, 1));
-			require(tied != null && tied.getStep() == hidden,
-					"stable raw catalog order did not break an exact priority tie");
+			require(tied != null && tied.getStep() == naked,
+					"Windows priority changed with configured index");
 		} finally {
+			hiddenConfig.setBaseScore(oldHiddenScore);
 			hiddenConfig.setIndex(oldHiddenIndex);
 			nakedConfig.setIndex(oldNakedIndex);
 		}
+		SolutionStep locked = subsetStep(SolutionType.LOCKED_CANDIDATES_2,
+				new int[] { 6, 7, 8 }, new int[] { 3 }, 15, 3);
+		SolutionStep triple = subsetStep(SolutionType.NAKED_TRIPLE,
+				new int[] { 6, 7, 8 }, new int[] { 2, 3, 9 }, 15, 9);
+		require(NativeReasoningMatcher.matchBox(Arrays.asList(locked, triple), board,
+				cells(6, 7, 8)).getStep() == triple,
+				"R1C789 triple lost to lower-weight claiming step");
+		require(NativeReasoningMatcher.preferredBoxStep(triple, locked),
+				"live Box analysis did not use the same Windows order");
+		SolutionStep derived = subsetStep(SolutionType.XYZ_WING,
+				new int[] { 6, 7, 8 }, new int[] { 2, 3, 9 }, 15, 3);
+		require(NativeReasoningMatcher.preferredBoxStep(triple, derived),
+				"a derived technique displaced the exact Box triple");
 	}
 
 	private static SolutionStep subsetStep(SolutionType type, int[] indices,

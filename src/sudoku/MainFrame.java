@@ -137,6 +137,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	private ColorKuImage[] toggleButtonImagesColorKu = new ColorKuImage[10];
 	/** Icons for the filter toggle buttons in the toolbar (ColorKu version) */
 	private Icon[] toggleButtonIconsColorKu = new Icon[10];
+    private Icon[] dimmedToggleButtonIconsColorKu = new Icon[10];
 	/** Icons for the filter toggle buttons in the toolbar (currently displayed) */
 	private Icon[] toggleButtonIcons = new Icon[10];
 	/** Icons for the filter toggle buttons in the toolbar (no candidates left) */
@@ -286,14 +287,21 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	private boolean optionKeyDown;
 	private CurrentReasoningMenu currentReasoningMenu;
 	private boolean reasoningEnterDown;
+    private boolean singlesKeyDown;
 	private final KeyEventDispatcher annotationKeyDispatcher = new KeyEventDispatcher() {
 		@Override
-		public boolean dispatchKeyEvent(KeyEvent event) {
+        public boolean dispatchKeyEvent(KeyEvent event) {
+            if(event.getKeyCode()==KeyEvent.VK_F11 && event.getID()==KeyEvent.KEY_RELEASED)singlesKeyDown=false;
+            if(event.getKeyCode()==KeyEvent.VK_ENTER && event.getID()==KeyEvent.KEY_RELEASED)reasoningEnterDown=false;
+            if(event.getKeyCode()==KeyEvent.VK_Q && event.getID()==KeyEvent.KEY_RELEASED
+                    && sudokuPanel!=null)sudokuPanel.setReviewLastBoardChange(false);
             java.awt.Component source = event.getComponent();
             java.awt.Window enteredWindow = source instanceof java.awt.Window ? (java.awt.Window) source
                     : source == null ? null : SwingUtilities.getWindowAncestor(source);
-            if (replayController != null && replayController.isViewing() && enteredWindow == MainFrame.this)
+            if (replayController != null && replayController.isViewing() && enteredWindow == MainFrame.this) {
+                if(event.getKeyCode()==KeyEvent.VK_F11){singlesKeyDown=false;event.consume();return true;}
                 return replayController.viewer().handleKeyEvent(event);
+            }
 			if ((event.getID() != KeyEvent.KEY_PRESSED && event.getID() != KeyEvent.KEY_RELEASED
 					&& event.getID() != KeyEvent.KEY_TYPED)
 					|| event.isConsumed() || sudokuPanel == null) {
@@ -319,7 +327,31 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 					&& !isPopupOwnedByThisFrame(activeWindow)) {
 				return false;
 			}
+            if (forwardEmptyTechniqueSelectorKey(event)) return true;
             // Handle board Tab before Aqua/Swing focus traversal consumes it.
+            // F11 is a whole-board command, independent of annotation tools and focus owner.
+            if(event.getKeyCode()==KeyEvent.VK_F11 && event.getModifiersEx()==0) {
+                if(event.getID()==KeyEvent.KEY_RELEASED)singlesKeyDown=false;
+                else if(event.getID()==KeyEvent.KEY_PRESSED && !singlesKeyDown) {
+                    singlesKeyDown=true;
+                    if(setAllSinglesMenuItem.isEnabled()) {
+                        if(techniqueSelectorPopup!=null)techniqueSelectorPopup.setVisible(false);
+                        javax.swing.MenuSelectionManager.defaultManager().clearSelectedPath();
+                        alleHiddenSinglesSetzenMenuItemActionPerformed(null);
+                    }
+                }
+                event.consume();return true;
+            }
+            // Hold Q over the board to inspect the previous board action.
+            if (event.getKeyCode() == KeyEvent.VK_Q
+					&& belongsToThisFrame
+					&& !(source instanceof javax.swing.text.JTextComponent)
+					&& (techniqueSelectorPopup == null || !techniqueSelectorPopup.isVisible())
+					&& (event.getModifiersEx() == 0 || event.getID() == KeyEvent.KEY_RELEASED)) {
+                sudokuPanel.setReviewLastBoardChange(event.getID() == KeyEvent.KEY_PRESSED);
+                event.consume();
+                return true;
+            }
             // Fields and dialogs keep their native Tab navigation.
             if((source==sudokuPanel || source==MainFrame.this) && event.getKeyCode()==KeyEvent.VK_TAB && event.getModifiersEx()==0
                     && (techniqueSelectorPopup==null || !techniqueSelectorPopup.isVisible())) {
@@ -371,6 +403,27 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			return sudokuPanel.handleAnnotationKeyPressed(event);
 		}
 	};
+
+    private boolean forwardEmptyTechniqueSelectorKey(KeyEvent event) {
+        javax.swing.JPopupMenu popup = techniqueSelectorPopup;
+        if (event.getID() != KeyEvent.KEY_PRESSED || popup == null || !popup.isVisible()
+                || !Boolean.TRUE.equals(popup.getClientProperty("emptyTechniqueResults"))
+                || event.getKeyCode() == KeyEvent.VK_ESCAPE) return false;
+        popup.setVisible(false);
+        javax.swing.MenuSelectionManager.defaultManager().clearSelectedPath();
+        reasoningEnterDown = false;
+        fixFocus();
+        // Tab would immediately reopen the same empty quick menu. In this one
+        // state it simply dismisses the menu; every other key reaches the board.
+        if (event.getKeyCode() != KeyEvent.VK_TAB) {
+            KeyEvent boardKey = new KeyEvent(sudokuPanel, event.getID(), event.getWhen(),
+                    event.getModifiersEx(), event.getKeyCode(), event.getKeyChar(), event.getKeyLocation());
+            if (!annotationKeyDispatcher.dispatchKeyEvent(boardKey) && !boardKey.isConsumed())
+                KeyboardFocusManager.getCurrentKeyboardFocusManager().redispatchEvent(sudokuPanel, boardKey);
+        }
+        event.consume();
+        return true;
+    }
 
 	private boolean dispatchTechniqueSelectorKeyEvent(KeyEvent event) {
 		javax.swing.JPopupMenu popup;
@@ -510,6 +563,9 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	private javax.swing.JToggleButton fxyzToggleButton;
 	private final javax.swing.JToggleButton[] annotationToolButtons =
 			new javax.swing.JToggleButton[AnnotationTool.values().length];
+    private javax.swing.JPanel doodleHypothesisToolbar;
+    private javax.swing.JToggleButton doodleHypothesisEntryButton;
+    private javax.swing.JButton doodleHypothesisCancelButton;
 	private javax.swing.JMenu helpMenu;
 	private javax.swing.JPanel hintPanel;
 	private javax.swing.JButton hinweisAbbrechenButton;
@@ -517,7 +573,6 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	private HintTextArea hinweisTextArea;
 	private javax.swing.JMenuItem historyMenuItem;
 	private javax.swing.JMenuBar jMenuBar1;
-	private javax.swing.JPanel jPanel1;
 	private javax.swing.JScrollPane jScrollPane1;
 	private javax.swing.JSeparator jSeparator1;
 	private javax.swing.JSeparator jSeparator11;
@@ -596,13 +651,6 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	private javax.swing.JLabel statusLabelModus;
 	private javax.swing.JLabel statusLabelCellSelection;
 	private javax.swing.JPanel statusLinePanel;
-	private javax.swing.JPanel statusPanelColor1;
-	private javax.swing.JPanel statusPanelColor2;
-	private javax.swing.JPanel statusPanelColor3;
-	private javax.swing.JPanel statusPanelColor4;
-	private javax.swing.JPanel statusPanelColor5;
-	private javax.swing.JPanel statusPanelColorClear;
-	private javax.swing.JPanel statusPanelColorReset;
 	private javax.swing.JPanel statusPanelColorResult;
 	private javax.swing.JRadioButtonMenuItem sudokuOnlyMenuItem;
 	private javax.swing.JRadioButtonMenuItem summaryMenuItem;
@@ -906,7 +954,6 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		outerSplitPane.setBackground(window);
 		outerSplitPane.setBorder(javax.swing.BorderFactory.createEmptyBorder());
 		hintPanel.setBackground(surface);
-		jPanel1.setBackground(surface);
 		jToolBar1.setBackground(surface);
 		tabPane.setBackground(surface);
 		tabPane.setForeground(foreground);
@@ -1146,14 +1193,6 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		modeButtonGroup = new javax.swing.ButtonGroup();
 		statusLinePanel = new javax.swing.JPanel();
 		statusPanelColorResult = new javax.swing.JPanel();
-		jPanel1 = new javax.swing.JPanel();
-		statusPanelColor1 = new StatusColorPanel(0);
-		statusPanelColor2 = new StatusColorPanel(2);
-		statusPanelColor3 = new StatusColorPanel(4);
-		statusPanelColor4 = new StatusColorPanel(6);
-		statusPanelColor5 = new StatusColorPanel(8);
-		statusPanelColorClear = new StatusColorPanel(-1);
-		statusPanelColorReset = new StatusColorPanel(-2);
 		statusLabelCellCandidate = new javax.swing.JLabel();
 		jSeparator1 = new javax.swing.JSeparator();
 		statusLabelLevel = new javax.swing.JLabel();
@@ -1307,6 +1346,8 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		addWindowFocusListener(new java.awt.event.WindowAdapter() {
 			@Override
 			public void windowLostFocus(java.awt.event.WindowEvent event) {
+                singlesKeyDown=false;
+				sudokuPanel.setReviewLastBoardChange(false);
 				if (!isOwnedByThisFrame(event.getOppositeWindow())) optionKeyDown = false;
 				if (sudokuPanel != null) sudokuPanel.cancelAnnotationToolInteractionOnDeactivation();
 			}
@@ -1315,133 +1356,9 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		statusLinePanel.setBackground(new java.awt.Color(0, 153, 255));
 		statusLinePanel.setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT));
 
-		statusPanelColorResult.setToolTipText(bundle.getString("MainFrame.statusPanelColorResult.toolTipText"));
-
-		javax.swing.GroupLayout statusPanelColorResultLayout = new javax.swing.GroupLayout(statusPanelColorResult);
-		statusPanelColorResult.setLayout(statusPanelColorResultLayout);
-		statusPanelColorResultLayout.setHorizontalGroup(statusPanelColorResultLayout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 30, Short.MAX_VALUE));
-		statusPanelColorResultLayout.setVerticalGroup(statusPanelColorResultLayout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-
-		statusLinePanel.add(statusPanelColorResult);
-
-		jPanel1.setOpaque(false);
-		jPanel1.setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.CENTER, 1, 0));
-
-		statusPanelColor1.setToolTipText(bundle.getString("MainFrame.statusPanelColor1.toolTipText"));
-		statusPanelColor1.addMouseListener(new java.awt.event.MouseAdapter() {
-			public void mouseClicked(java.awt.event.MouseEvent evt) {
-				statusPanelColor1MouseClicked(evt);
-			}
-		});
-
-		javax.swing.GroupLayout statusPanelColor1Layout = new javax.swing.GroupLayout(statusPanelColor1);
-		statusPanelColor1.setLayout(statusPanelColor1Layout);
-		statusPanelColor1Layout.setHorizontalGroup(statusPanelColor1Layout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-		statusPanelColor1Layout.setVerticalGroup(statusPanelColor1Layout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-
-		jPanel1.add(statusPanelColor1);
-
-		statusPanelColor2.setToolTipText(bundle.getString("MainFrame.statusPanelColor2.toolTipText"));
-		statusPanelColor2.addMouseListener(new java.awt.event.MouseAdapter() {
-			public void mouseClicked(java.awt.event.MouseEvent evt) {
-				statusPanelColor2MouseClicked(evt);
-			}
-		});
-
-		javax.swing.GroupLayout statusPanelColor2Layout = new javax.swing.GroupLayout(statusPanelColor2);
-		statusPanelColor2.setLayout(statusPanelColor2Layout);
-		statusPanelColor2Layout.setHorizontalGroup(statusPanelColor2Layout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-		statusPanelColor2Layout.setVerticalGroup(statusPanelColor2Layout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-
-		jPanel1.add(statusPanelColor2);
-
-		statusPanelColor3.setToolTipText(bundle.getString("MainFrame.statusPanelColor3.toolTipText"));
-		statusPanelColor3.addMouseListener(new java.awt.event.MouseAdapter() {
-			public void mouseClicked(java.awt.event.MouseEvent evt) {
-				statusPanelColor3MouseClicked(evt);
-			}
-		});
-
-		javax.swing.GroupLayout statusPanelColor3Layout = new javax.swing.GroupLayout(statusPanelColor3);
-		statusPanelColor3.setLayout(statusPanelColor3Layout);
-		statusPanelColor3Layout.setHorizontalGroup(statusPanelColor3Layout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-		statusPanelColor3Layout.setVerticalGroup(statusPanelColor3Layout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-
-		jPanel1.add(statusPanelColor3);
-
-		statusPanelColor4.setToolTipText(bundle.getString("MainFrame.statusPanelColor4.toolTipText"));
-		statusPanelColor4.addMouseListener(new java.awt.event.MouseAdapter() {
-			public void mouseClicked(java.awt.event.MouseEvent evt) {
-				statusPanelColor4MouseClicked(evt);
-			}
-		});
-
-		javax.swing.GroupLayout statusPanelColor4Layout = new javax.swing.GroupLayout(statusPanelColor4);
-		statusPanelColor4.setLayout(statusPanelColor4Layout);
-		statusPanelColor4Layout.setHorizontalGroup(statusPanelColor4Layout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-		statusPanelColor4Layout.setVerticalGroup(statusPanelColor4Layout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-
-		jPanel1.add(statusPanelColor4);
-
-		statusPanelColor5.setToolTipText(bundle.getString("MainFrame.statusPanelColor5.toolTipText"));
-		statusPanelColor5.addMouseListener(new java.awt.event.MouseAdapter() {
-			public void mouseClicked(java.awt.event.MouseEvent evt) {
-				statusPanelColor5MouseClicked(evt);
-			}
-		});
-
-		javax.swing.GroupLayout statusPanelColor5Layout = new javax.swing.GroupLayout(statusPanelColor5);
-		statusPanelColor5.setLayout(statusPanelColor5Layout);
-		statusPanelColor5Layout.setHorizontalGroup(statusPanelColor5Layout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-		statusPanelColor5Layout.setVerticalGroup(statusPanelColor5Layout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-
-		jPanel1.add(statusPanelColor5);
-
-		statusPanelColorClear.setToolTipText(bundle.getString("MainFrame.statusPanelColorClear.toolTipText"));
-		statusPanelColorClear.addMouseListener(new java.awt.event.MouseAdapter() {
-			public void mouseClicked(java.awt.event.MouseEvent evt) {
-				statusPanelColorClearMouseClicked(evt);
-			}
-		});
-
-		javax.swing.GroupLayout statusPanelColorClearLayout = new javax.swing.GroupLayout(statusPanelColorClear);
-		statusPanelColorClear.setLayout(statusPanelColorClearLayout);
-		statusPanelColorClearLayout.setHorizontalGroup(statusPanelColorClearLayout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-		statusPanelColorClearLayout.setVerticalGroup(statusPanelColorClearLayout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-
-		jPanel1.add(statusPanelColorClear);
-
-		statusPanelColorReset.setToolTipText(bundle.getString("MainFrame.statusPanelColorReset.toolTipText"));
-		statusPanelColorReset.addMouseListener(new java.awt.event.MouseAdapter() {
-			public void mouseClicked(java.awt.event.MouseEvent evt) {
-				statusPanelColorResetMouseClicked(evt);
-			}
-		});
-
-		javax.swing.GroupLayout statusPanelColorResetLayout = new javax.swing.GroupLayout(statusPanelColorReset);
-		statusPanelColorReset.setLayout(statusPanelColorResetLayout);
-		statusPanelColorResetLayout.setHorizontalGroup(statusPanelColorResetLayout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-		statusPanelColorResetLayout.setVerticalGroup(statusPanelColorResetLayout
-				.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING).addGap(0, 15, Short.MAX_VALUE));
-
-		jPanel1.add(statusPanelColorReset);
-
-		statusLinePanel.add(jPanel1);
+        statusPanelColorResult.setOpaque(false);
+        statusPanelColorResult.setLayout(new java.awt.BorderLayout());
+        statusLinePanel.add(statusPanelColorResult);
 
 		statusLabelCellCandidate.setText(bundle.getString("MainFrame.statusLabelCellCandidate.text.cell"));
 		statusLabelCellCandidate.setToolTipText(bundle.getString("MainFrame.statusLabelCellCandidate.toolTipText"));
@@ -1545,6 +1462,8 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		jSeparator11.setMaximumSize(new java.awt.Dimension(5, 32767));
 		jToolBar1.add(jSeparator11);
 
+        javax.swing.JPanel filterGroup = createToolbarFunctionGroup();
+        jToolBar1.add(filterGroup);
 		redGreenToggleButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/img/rgDeselected1.png")));
 		redGreenToggleButton.setSelected(true);
 		redGreenToggleButton.setToolTipText(bundle.getString("MainFrame.redGreenToggleButton.toolTipText"));
@@ -1554,7 +1473,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				redGreenToggleButtonActionPerformed(evt);
 			}
 		});
-		jToolBar1.add(redGreenToggleButton);
+		filterGroup.add(redGreenToggleButton);
 
 		f1ToggleButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/img/f_1c.png")));
 		f1ToggleButton.setToolTipText(bundle.getString("MainFrame.f1ToggleButton.toolTipText"));
@@ -1563,7 +1482,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				f1ToggleButtonActionPerformed1(evt);
 			}
 		});
-		jToolBar1.add(f1ToggleButton);
+		filterGroup.add(f1ToggleButton);
 
 		f2ToggleButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/img/f_2c.png")));
 		f2ToggleButton.setToolTipText(bundle.getString("MainFrame.f2ToggleButton.toolTipText"));
@@ -1572,7 +1491,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				f1ToggleButtonActionPerformed(evt);
 			}
 		});
-		jToolBar1.add(f2ToggleButton);
+		filterGroup.add(f2ToggleButton);
 
 		f3ToggleButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/img/f_3c.png")));
 		f3ToggleButton.setToolTipText(bundle.getString("MainFrame.f3ToggleButton.toolTipText"));
@@ -1581,7 +1500,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				f1ToggleButtonActionPerformed(evt);
 			}
 		});
-		jToolBar1.add(f3ToggleButton);
+		filterGroup.add(f3ToggleButton);
 
 		f4ToggleButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/img/f_4c.png")));
 		f4ToggleButton.setToolTipText(bundle.getString("MainFrame.f4ToggleButton.toolTipText"));
@@ -1590,7 +1509,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				f1ToggleButtonActionPerformed(evt);
 			}
 		});
-		jToolBar1.add(f4ToggleButton);
+		filterGroup.add(f4ToggleButton);
 
 		f5ToggleButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/img/f_5c.png")));
 		f5ToggleButton.setToolTipText(bundle.getString("MainFrame.f5ToggleButton.toolTipText"));
@@ -1599,7 +1518,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				f1ToggleButtonActionPerformed(evt);
 			}
 		});
-		jToolBar1.add(f5ToggleButton);
+		filterGroup.add(f5ToggleButton);
 
 		f6ToggleButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/img/f_6c.png")));
 		f6ToggleButton.setToolTipText(bundle.getString("MainFrame.f6ToggleButton.toolTipText"));
@@ -1608,7 +1527,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				f1ToggleButtonActionPerformed(evt);
 			}
 		});
-		jToolBar1.add(f6ToggleButton);
+		filterGroup.add(f6ToggleButton);
 
 		f7ToggleButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/img/f_7c.png")));
 		f7ToggleButton.setToolTipText(bundle.getString("MainFrame.f7ToggleButton.toolTipText"));
@@ -1617,7 +1536,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				f1ToggleButtonActionPerformed(evt);
 			}
 		});
-		jToolBar1.add(f7ToggleButton);
+		filterGroup.add(f7ToggleButton);
 
 		f8ToggleButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/img/f_8c.png")));
 		f8ToggleButton.setToolTipText(bundle.getString("MainFrame.f8ToggleButton.toolTipText"));
@@ -1626,7 +1545,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				f1ToggleButtonActionPerformed(evt);
 			}
 		});
-		jToolBar1.add(f8ToggleButton);
+		filterGroup.add(f8ToggleButton);
 
 		f9ToggleButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/img/f_9c.png")));
 		f9ToggleButton.setToolTipText(bundle.getString("MainFrame.f9ToggleButton.toolTipText"));
@@ -1635,7 +1554,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				f1ToggleButtonActionPerformed(evt);
 			}
 		});
-		jToolBar1.add(f9ToggleButton);
+		filterGroup.add(f9ToggleButton);
 
 		fxyToggleButton.setIcon(ToolbarIcons.xyFilter());
 		fxyToggleButton.setToolTipText(bundle.getString("MainFrame.fxyToggleButton.toolTipText"));
@@ -1647,7 +1566,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				fxyToggleButtonActionPerformed(evt);
 			}
 		});
-		jToolBar1.add(fxyToggleButton);
+		filterGroup.add(fxyToggleButton);
 
 		fxyzToggleButton.setIcon(ToolbarIcons.xyzFilter());
 		fxyzToggleButton.setToolTipText(bundle.getString("MainFrame.fxyzToggleButton.toolTipText"));
@@ -1659,7 +1578,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				fxyzToggleButtonActionPerformed(evt);
 			}
 		});
-		jToolBar1.add(fxyzToggleButton);
+		filterGroup.add(fxyzToggleButton);
 		addAnnotationToolButtonsToToolbar();
 
 		getContentPane().add(jToolBar1, java.awt.BorderLayout.NORTH);
@@ -2771,9 +2690,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		new ConfigDialog(this, true, -1).setVisible(true);
 		sudokuPanel.resetActiveColor();
 		
-		if (cellZoomPanel.isColoring()) {
-			statusPanelColorResult.setBackground(sudokuPanel.getActiveColor());
-		}
+        cellZoomPanel.repaintSharedColorControls();
 		
 		sudokuPanel.setColorIconsInPopupMenu();
 		check();
@@ -3069,7 +2986,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	}
 
 	private void alleHiddenSinglesSetzenMenuItemActionPerformed(java.awt.event.ActionEvent evt) {
-		
+        if(replayController!=null && replayController.isViewing())return;
 		hinweisAbbrechenButtonActionPerformed(null);
 		sudokuPanel.setAllSingles();
 		fixFocus();
@@ -3606,6 +3523,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
             sudokuFileName=null;setTitle(VERSION);
             completionTransition.begin(solutions==1,false);
             resetSelectedHintTechnique();
+            try{sudokuPanel.installReplayAnnotations(recovered.last().annotations);}catch(IOException e){throw new IllegalArgumentException("Invalid replay annotations",e);}
             if(recovered.initialAnnotations().length>0)try{sudokuPanel.restoreReplayAnnotations(recovered.initialAnnotations());}catch(IOException e){throw new IllegalArgumentException("Invalid replay annotations",e);}
         }finally{sessionRestoreInProgress=false;}
     }
@@ -3632,6 +3550,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 
 	void sudokuStateChanged() {
         clearPendingChainPaste();
+		sudokuPanel.observeBoardChange();
 		sudokuPanel.reasoningBoardChanged();
 		sudokuPanel.clearTechniquePreviewCells();
 		resetResolvedSelectedHintStep();
@@ -3862,36 +3781,6 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			fixFocus();
 			if (replayController != null) replayController.startNewAttempt();
 		}
-	}
-
-	private void statusPanelColor1MouseClicked(java.awt.event.MouseEvent evt) {
-		coloringPanelClicked(Options.getInstance().getColoringColors()[0]);
-	}
-
-	private void statusPanelColor2MouseClicked(java.awt.event.MouseEvent evt) {
-		coloringPanelClicked(Options.getInstance().getColoringColors()[2]);
-	}
-
-	private void statusPanelColor3MouseClicked(java.awt.event.MouseEvent evt) {
-		coloringPanelClicked(Options.getInstance().getColoringColors()[4]);
-	}
-
-	private void statusPanelColor4MouseClicked(java.awt.event.MouseEvent evt) {
-		coloringPanelClicked(Options.getInstance().getColoringColors()[6]);
-	}
-
-	private void statusPanelColor5MouseClicked(java.awt.event.MouseEvent evt) {
-		coloringPanelClicked(Options.getInstance().getColoringColors()[8]);
-	}
-
-	private void statusPanelColorClearMouseClicked(java.awt.event.MouseEvent evt) {
-		coloringPanelClicked(null);
-	}
-
-	private void statusPanelColorResetMouseClicked(java.awt.event.MouseEvent evt) {
-		sudokuPanel.clearColoring();
-		coloringPanelClicked(null);
-		sudokuPanel.repaint();
 	}
 
 	private void colorCellsMenuItemActionPerformed(java.awt.event.ActionEvent evt) {
@@ -4134,11 +4023,23 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		fixFocus();
 	}
 
+    private javax.swing.JPanel createToolbarFunctionGroup() {
+        javax.swing.JPanel panel = new javax.swing.JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEADING, 0, 0));
+        panel.setOpaque(false);
+        panel.setBorder(javax.swing.BorderFactory.createCompoundBorder(
+                javax.swing.BorderFactory.createLineBorder(ApplicationAppearance.isDark()
+                        ? new java.awt.Color(92, 97, 105) : new java.awt.Color(178, 183, 190), 1, true),
+                javax.swing.BorderFactory.createEmptyBorder(1, 2, 1, 2)));
+        return panel;
+    }
+
 	private void addAnnotationToolButtonsToToolbar() {
 		javax.swing.JSeparator separator = new javax.swing.JSeparator();
 		separator.setOrientation(javax.swing.SwingConstants.VERTICAL);
 		separator.setMaximumSize(new java.awt.Dimension(5, 32767));
 		jToolBar1.add(separator);
+        javax.swing.JPanel toolGroup = createToolbarFunctionGroup();
+        jToolBar1.add(toolGroup);
 		javax.swing.ButtonGroup group = new javax.swing.ButtonGroup();
 		for (final AnnotationTool tool : AnnotationTool.values()) {
 			javax.swing.JToggleButton button = new javax.swing.JToggleButton(
@@ -4150,7 +4051,8 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			button.setMaximumSize(toolButtonSize);
 			button.setFocusable(false);
 			button.setMargin(new java.awt.Insets(2, 2, 2, 2));
-			button.setToolTipText(annotationToolName(tool));
+			button.setToolTipText(annotationToolTooltip(tool));
+            button.getAccessibleContext().setAccessibleName(annotationToolName(tool));
 			button.addActionListener(new java.awt.event.ActionListener() {
 				@Override public void actionPerformed(java.awt.event.ActionEvent event) {
                     if (sudokuPanel == null) return;
@@ -4162,17 +4064,51 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			annotationToolButtons[tool.ordinal()] = button;
             if(tool==AnnotationTool.CELL_COLORING){button.setVisible(false);continue;}
 			group.add(button);
-			jToolBar1.add(button);
-		}
-		jToolBar1.add(cellZoomPanel.getToolbarPalette());
-        jToolBar1.addComponentListener(new java.awt.event.ComponentAdapter() {
-            @Override public void componentShown(java.awt.event.ComponentEvent e) { cellZoomPanel.setToolbarPaletteVisible(true); }
-            @Override public void componentHidden(java.awt.event.ComponentEvent e) { cellZoomPanel.setToolbarPaletteVisible(false); }
-        });
+            FlatToolButtonUI.install(button);
+            toolGroup.add(button);
+        }
+        toolGroup.add(cellZoomPanel.getToolbarPalette());
+        statusPanelColorResult.add(cellZoomPanel.getToolbarPalette().getStatusPalette(), java.awt.BorderLayout.CENTER);
         cellZoomPanel.setToolbarPaletteVisible(true);
 		annotationToolButtons[AnnotationTool.DEFAULT_MOUSE.ordinal()].setSelected(true);
         chainRelationUiChanged();
+        addDoodleHypothesisToolbar(toolGroup);
 	}
+
+    private void addDoodleHypothesisToolbar(javax.swing.JPanel toolGroup) {
+        ResourceBundle bundle = ResourceBundle.getBundle("intl/MainFrame");
+        doodleHypothesisToolbar = toolGroup;
+        doodleHypothesisEntryButton = new javax.swing.JToggleButton(new DoodleHypothesisIcon(false, ANNOTATION_TOOLBAR_ICON_SIZE));
+        doodleHypothesisEntryButton.addActionListener(event -> {
+            sudokuPanel.toggleDoodleHypothesisEntry(); doodleHypothesisStateChanged(); fixFocus();
+        });
+        doodleHypothesisCancelButton = new javax.swing.JButton(new DoodleHypothesisIcon(true, ANNOTATION_TOOLBAR_ICON_SIZE));
+        doodleHypothesisCancelButton.addActionListener(event -> {
+            sudokuPanel.cancelDoodleHypothesisStarts(); doodleHypothesisStateChanged(); fixFocus();
+        });
+        javax.swing.AbstractButton[] buttons = {doodleHypothesisEntryButton, doodleHypothesisCancelButton};
+        String[] keys = {"append", "cancel"};
+        for (int i = 0; i < buttons.length; i++) {
+            javax.swing.AbstractButton button = buttons[i];
+            java.awt.Dimension size = new java.awt.Dimension(38, 38);
+            button.setMinimumSize(size); button.setPreferredSize(size); button.setMaximumSize(size);
+            button.setMargin(new java.awt.Insets(2, 2, 2, 2)); button.setFocusable(false);
+            button.setToolTipText(bundle.getString("MainFrame.hypothesis." + keys[i] + "Hint"));
+            button.getAccessibleContext().setAccessibleName(bundle.getString("MainFrame.hypothesis." + keys[i]));
+            FlatToolButtonUI.install(button); toolGroup.add(button);
+        }
+        doodleHypothesisStateChanged();
+    }
+
+    /** P attributes occupy the existing mode-control group; G and mouse share their state. */
+    public void doodleHypothesisStateChanged() {
+        if (doodleHypothesisToolbar == null || sudokuPanel == null) return;
+        boolean doodle = sudokuPanel.getAnnotationTool() == AnnotationTool.DOODLE;
+        doodleHypothesisEntryButton.setVisible(doodle);
+        doodleHypothesisCancelButton.setVisible(doodle);
+        doodleHypothesisEntryButton.setSelected(sudokuPanel.isDoodleHypothesisEntryActive());
+        jToolBar1.revalidate(); jToolBar1.repaint();
+    }
 
 	private String annotationToolName(AnnotationTool tool) {
 		ResourceBundle annotationBundle = ResourceBundle.getBundle("intl/MainFrame");
@@ -4186,6 +4122,23 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		}
 	}
 
+    private String annotationToolTooltip(AnnotationTool tool) {
+        String key;
+        switch (tool) {
+        case CANDIDATE_COLORING: key = "coloring"; break;
+        case DOODLE: key = "doodle"; break;
+        case FREE_CHAIN: key = "chain"; break;
+        case BOX_SELECTION: key = "box"; break;
+        default: return annotationToolName(tool);
+        }
+        ResourceBundle bundle = ResourceBundle.getBundle("intl/MainFrame");
+        String state = tool == AnnotationTool.FREE_CHAIN && sudokuPanel != null
+                ? bundle.getString(sudokuPanel.isNextUserChainStrong()
+                    ? "MainFrame.chainToolbar.strong" : "MainFrame.chainToolbar.weak") + "<br>" : "";
+        return "<html><div style=\"width: 480px\">" + state + bundle.getString("MainFrame.annotationHelp." + key)
+                + "<br><br>" + bundle.getString("MainFrame.annotationHelp.common") + "</div></html>";
+    }
+
 	void annotationToolChanged(AnnotationTool tool) {
 		if (tool != null && annotationToolButtons[tool.ordinal()] != null
 				&& !annotationToolButtons[tool.ordinal()].isSelected()) {
@@ -4198,13 +4151,14 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
         if (button == null || sudokuPanel == null) return;
         String text = ResourceBundle.getBundle("intl/MainFrame").getString(sudokuPanel.isNextUserChainStrong()
                 ? "MainFrame.chainToolbar.strong" : "MainFrame.chainToolbar.weak");
-        button.setToolTipText(text); button.getAccessibleContext().setAccessibleName(text); button.repaint();
+        button.setToolTipText(annotationToolTooltip(AnnotationTool.FREE_CHAIN)); button.getAccessibleContext().setAccessibleName(text); button.repaint();
     }
 
 	/** Refreshes only controls whose meaning changes with an annotation tool. */
 	void annotationToolUiChanged(AnnotationTool tool) {
         updateCellSelectionStatus();
 		annotationToolChanged(tool);
+        doodleHypothesisStateChanged();
 		refreshAnnotationUndoControls();
 		refreshAnnotationColorModeControls();
 		fixFocus();
@@ -4308,10 +4262,11 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 					);
 					
 					toggleButtonIconsColorKu[i] = new ImageIcon(toggleButtonImagesColorKu[i]);
+                    dimmedToggleButtonIconsColorKu[i] = new DimmedCandidateIcon(toggleButtonIconsColorKu[i]);
 				}
 				
 				toggleButtonIcons[i] = toggleButtonIconsColorKu[i];
-				emptyToggleButtonIcons[i] = emptyToggleButtonIconOrgColorKu;
+				emptyToggleButtonIcons[i] = dimmedToggleButtonIconsColorKu[i];
 			}
 
 		} else {
@@ -4319,8 +4274,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				if (flatToggleButtonIcons[i] == null) {
 					flatToggleButtonIcons[i] = new CandidateFilterIcon(
 							i + 1, true, TOGGLE_BUTTON_ICON_SIZE);
-					flatEmptyToggleButtonIcons[i] = new CandidateFilterIcon(
-							i + 1, false, TOGGLE_BUTTON_ICON_SIZE);
+					flatEmptyToggleButtonIcons[i] = new DimmedCandidateIcon(flatToggleButtonIcons[i]);
 				}
 				toggleButtonIcons[i] = flatToggleButtonIcons[i];
 				emptyToggleButtonIcons[i] = flatEmptyToggleButtonIcons[i];
@@ -4580,7 +4534,6 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				if (released) return;
 				released = true;
                 updateTechniqueMenuOpacity(popup, false);
-                if (!Boolean.TRUE.equals(popup.getClientProperty("switchingTechniqueMode"))) commitTechniqueSelectorSelection(popup);
 				sudokuPanel.clearTechniquePreviewCells();
 				synchronized (techniqueScanLock) {
 					if (techniqueSelectorPopup == popup) techniqueSelectorPopup = null;
@@ -4596,13 +4549,6 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				releasePopup();
 			}
 		});
-	}
-
-	private void commitTechniqueSelectorSelection(javax.swing.JPopupMenu popup) {
-		if (popup.getComponentCount() == 1
-				&& popup.getComponent(0) instanceof TechniqueSelectorPanel) {
-			((TechniqueSelectorPanel) popup.getComponent(0)).commitSelectionOnClose();
-		}
 	}
 
 	private void runTechniqueScan(Sudoku2 snapshot, String signature) {
@@ -4786,12 +4732,13 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			for (UserChain chain : panel.getUserChainsForTechniqueMatching()) {
 				List<UserChainNode> nodes = chain.getNodes();
 				for (UserChainNode node : nodes) {
-					chainCandidates.add(Integer.valueOf(node.getCellIndex() * 10 + node.getCandidate()));
+					for(int atom:node.atoms())chainCandidates.add(atom);
 				}
 				for (int i = 1; i < nodes.size(); i++) {
 					boolean strong = i - 1 < chain.getStrongRelations().size()
 							&& chain.getStrongRelations().get(i - 1).booleanValue();
-					int first = nodes.get(i - 1).getCellIndex() * 10 + nodes.get(i - 1).getCandidate();
+					if(nodes.get(i-1).grouped()||nodes.get(i).grouped())continue;
+                    int first = nodes.get(i - 1).getCellIndex() * 10 + nodes.get(i - 1).getCandidate();
 					int second = nodes.get(i).getCellIndex() * 10 + nodes.get(i).getCandidate();
 					chainLinks.add(StepFootprint.linkKey(first, second, strong));
 				}
@@ -4838,6 +4785,8 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	private void populateTechniqueSelector(javax.swing.JPopupMenu popup, List<SolutionType> types,
 			ResourceBundle selectorBundle) {
 		sudokuPanel.clearTechniquePreviewCells();
+		popup.putClientProperty("emptyTechniqueResults",
+				Boolean.valueOf(types.isEmpty() && cachedTechniqueScanComplete && !cachedTechniqueScanFailed));
 		javax.swing.JComponent content;
 		if (!types.isEmpty()) {
 			content = new TechniqueSelectorPanel(types, selectorBundle, popup);
@@ -5341,29 +5290,6 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
             else selectTechniqueInstance(instance.step.getType(), instance.step, instance.originalIndex, instance.originalCount);
         }
 
-		private void commitSelectionOnClose() {
-            if (reasoning != null) return;
-			TechniqueChoice choice = techniqueList.getSelectedValue();
-			if (choice == null) return;
-			if (choice.type == null) {
-				applyTechniqueInstance(null, null, 0, 0);
-				return;
-			}
-			if (choice.instances.size() == 1) {
-				TechniqueInstance instance = choice.instances.get(0);
-				applyTechniqueInstance(choice.type, instance.step,
-						instance.originalIndex, instance.originalCount);
-				return;
-			}
-			if (navigatorChoice != choice) showInstanceNavigator(choice);
-			commitOriginalInstanceNumber();
-			if (displayedInstanceIndex >= 0) {
-				TechniqueInstance instance = choice.instances.get(displayedInstanceIndex);
-				applyTechniqueInstance(choice.type, instance.step,
-						instance.originalIndex, instance.originalCount);
-			}
-		}
-
 		private void showInstancePreview(int displayedIndex) {
 			TechniqueChoice choice = techniqueList.getSelectedValue();
 			if (choice == null || choice.instances == null || displayedIndex < 0
@@ -5431,13 +5357,19 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				} else {
 					setToolTipText(null);
 				}
-				                if (reasoning != null && choice.instances != null) {
+                if (reasoning != null && choice.instances != null) {
                     int mask = 0;
-                    for (TechniqueInstance candidate : choice.instances) mask |= reasoning.relatedMask(candidate.step);
+                    int exact = 0;
+                    for (TechniqueInstance candidate : choice.instances) {
+                        mask |= reasoning.relatedMask(candidate.step);
+                        if (reasoning.isExactChainStep(candidate.step)) exact++;
+                    }
                     statusLabel.setIcon(reasoning.badgeIcon(mask));
-                    status = choice.instances.size() + (choice.instances.size() > 1 ? "  ›" : "");
-                    accessibleStatus = reasoning.relatedDescription(mask) + " " + choice.instances.size();
-                    setToolTipText(reasoning.relatedDescription(mask));
+                    String exactSummary = exact == 0 ? "" : MessageFormat.format(
+                            bundle.getString("MainFrame.currentReasoning.exactCount"), exact) + " / ";
+                    status = exactSummary + choice.instances.size() + (choice.instances.size() > 1 ? "  ›" : "");
+                    accessibleStatus = reasoning.relatedDescription(mask) + " " + status;
+                    setToolTipText(accessibleStatus);
                 }
                 statusLabel.setText(status);
 				java.awt.Color background = selected
@@ -5735,27 +5667,10 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
         setColoring(cellZoomPanel.isDefaultMouse()?cellZoomPanel.getPrimaryColor():null,false);
     }
 
-	public void coloringPanelClicked(Color color) {
-		
-		if (color == null) {
-			
-			Color statusBackground = ApplicationAppearance.isDark()
-					? SudokuAppearancePalette.forRendering(false).getSurfaceBackground()
-					: Options.getInstance().getDefaultCellColor();
-			statusPanelColorResult.setBackground(statusBackground);
-			sudokuPanel.setActiveColor(null);
-			/*
-			if (colorNumber == -2) {
-				sudokuPanel.clearColoring();
-				repaint();
-			}*/
-			
-		} else {
-			
-			statusPanelColorResult.setBackground(color);
-			sudokuPanel.setActiveColor(color);
-		}
-	}
+    public void coloringPanelClicked(Color color) {
+        sudokuPanel.setActiveColor(color);
+        cellZoomPanel.repaintSharedColorControls();
+    }
 
 	private void syncDisplayModeMenuSelection() {
 		if (!splitPanel.hasRight()) {
@@ -6836,13 +6751,22 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			// either all ToggleButtons are set or none is
 			if (toggleButtons[0] != null) {
 				
-				boolean[] remainingCandidates = sudokuPanel.getRemainingCandidates();
+                boolean[] remainingCandidates = sudokuPanel.getRemainingCandidates();
+                int[] placed = new int[10];
+                for (int cell = 0; cell < 81; cell++) placed[sudokuPanel.getSudoku().getValue(cell)]++;
+                ResourceBundle filterBundle = ResourceBundle.getBundle("intl/MainFrame");
 				for (int i = 0; i < remainingCandidates.length; i++) {
 					
 					JToggleButton button = toggleButtons[i];
 					
-					// change the standard icons
-					if (remainingCandidates[i]) {
+                    boolean complete = placed[i + 1] == 9;
+                    button.putClientProperty("candidateComplete", complete);
+                    String hint = filterBundle.getString("MainFrame.f" + (i + 1) + "ToggleButton.toolTipText")
+                            + (complete ? filterBundle.getString("MainFrame.filter.completed") : "");
+                    button.setToolTipText(hint);
+                    button.getAccessibleContext().setAccessibleName(hint);
+                    // Hiding pencilmarks does not mean every digit has been completed.
+                    if (!complete && (!sudokuPanel.isShowCandidates() || remainingCandidates[i])) {
 
 						if (button.getIcon() != toggleButtonIcons[i]) {
 							button.setIcon(toggleButtonIcons[i]);

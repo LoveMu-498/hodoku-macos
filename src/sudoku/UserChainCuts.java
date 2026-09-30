@@ -27,26 +27,29 @@ final class UserChainCuts {
             fragment.setNextStrong(!original.getStrongRelations().get(edge));
             if(original.isActive()&&to==n-1)fragment.setActive(true);
         }
+        if(original.isActive()&&!result.isEmpty()){
+            boolean active=false;for(UserChain part:result)active|=part.isActive();
+            if(!active)result.get(result.size()-1).setActive(true);
+        }
         return result;
     }
     static List<UserChain> removeMembersAndEdges(UserChain original,Set<Integer> edges,
-            java.util.Map<Integer,Set<Integer>> members) {
+            java.util.Map<String,Set<Integer>> members) {
         UserChain copy=new UserChain();copy.setClosed(original.isClosed());copy.setActive(original.isActive());copy.setNextStrong(original.isNextStrong());
         for(UserChainNode node:original.getNodes())copy.getNodes().add(node.copy());
         copy.getStrongRelations().addAll(original.getStrongRelations());copy.getRelationColors().addAll(original.getRelationColors());
         Set<Integer> removed=new java.util.HashSet<Integer>(edges);
         int n=copy.getNodes().size();
         for(int i=0;i<n;i++) {
-            UserChainNode node=copy.getNodes().get(i);Set<Integer> hit=members.get(node.identity());
+            UserChainNode node=copy.getNodes().get(i);Set<Integer> hit=members.get(node.key());
             if(hit==null)continue;
-            java.util.List<Integer> keep=new ArrayList<Integer>();for(int c:node.cells())if(!hit.contains(c))keep.add(c);
+            java.util.List<Integer> keep=new ArrayList<Integer>();for(int c:node.atoms())if(!hit.contains(c))keep.add(c);
             if(keep.isEmpty()) {
                 if(n==1)return new ArrayList<UserChain>();
                 if(i>0)removed.add(i-1);else if(copy.isClosed())removed.add(n-1);
                 if(i<copy.getStrongRelations().size())removed.add(i);
             } else {
-                UserChainNode next=new UserChainNode(keep.get(0),node.getCandidate(),node.getColor());
-                if(keep.size()>1){int[] c=new int[keep.size()];for(int j=0;j<c.length;j++)c[j]=keep.get(j);next.setGroupCells(c);}
+                UserChainNode next=UserChainNode.fromAtoms(keep.stream().mapToInt(Integer::intValue).toArray(),node.getColor());
                 copy.getNodes().set(i,next);
             }
         }

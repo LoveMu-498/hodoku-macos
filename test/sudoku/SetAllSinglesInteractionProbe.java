@@ -8,6 +8,7 @@ package sudoku;
 import java.lang.reflect.Field;
 import java.awt.KeyboardFocusManager;
 import java.awt.event.KeyEvent;
+import java.awt.image.BufferedImage;
 import javax.swing.JComponent;
 import javax.swing.RepaintManager;
 import javax.swing.SwingUtilities;
@@ -84,6 +85,7 @@ public final class SetAllSinglesInteractionProbe {
 					Options.getInstance().setShowSudokuSolved(false);
 					panel.setSudoku(SINGLES_PUZZLE);
 					panel.getSudoku().setStatus(SudokuStatus.INVALID);
+					String batchBefore = panel.getSudokuString(ClipboardMode.PM_GRID);
 					int solvedBefore = panel.getSolvedCellsAnz();
 					PanelRepaintManager repaints = new PanelRepaintManager(panel);
 					RepaintManager previousRepaints = RepaintManager.currentManager(panel);
@@ -105,6 +107,33 @@ public final class SetAllSinglesInteractionProbe {
 					}
 					if (!SINGLES_SOLUTION.equals(panel.getSudokuString(ClipboardMode.VALUES_ONLY))) {
 						throw new AssertionError("F11 did not execute the complete Set All Singles cascade");
+					}
+					Sudoku2 reviewBefore = (Sudoku2) readField(panel, SudokuPanel.class, "lastBoardBefore");
+					if (reviewBefore == null || !batchBefore.equals(reviewBefore.getSudoku(ClipboardMode.PM_GRID, null))) {
+						throw new AssertionError("F11 review did not retain the pre-batch board");
+					}
+					BufferedImage ordinaryBoard = renderBoard(panel);
+					pressReviewKey(frame, panel, KeyEvent.KEY_PRESSED);
+					if (!(Boolean) readField(panel, SudokuPanel.class, "reviewLastBoardChange")) {
+						throw new AssertionError("Q review did not become available after F11");
+					}
+					if (samePixels(ordinaryBoard, renderBoard(panel))) {
+						throw new AssertionError("Q review did not draw previous candidates");
+					}
+					pressReviewKey(frame, panel, KeyEvent.KEY_RELEASED);
+					if ((Boolean) readField(panel, SudokuPanel.class, "reviewLastBoardChange")) {
+						throw new AssertionError("Q release left review visible");
+					}
+					if (!samePixels(ordinaryBoard, renderBoard(panel))) {
+						throw new AssertionError("Q release did not restore the ordinary board rendering");
+					}
+					panel.undo();
+					if (!batchBefore.equals(panel.getSudokuString(ClipboardMode.PM_GRID))) {
+						throw new AssertionError("one undo did not restore the entire F11 batch");
+					}
+					panel.redo();
+					if (!SINGLES_SOLUTION.equals(panel.getSudokuString(ClipboardMode.VALUES_ONLY))) {
+						throw new AssertionError("one redo did not replay the entire F11 batch");
 					}
 					if (repaints.dirtyRegions > 6) {
 						throw new AssertionError("Set All Singles repainted the board per step: "
@@ -205,6 +234,29 @@ public final class SetAllSinglesInteractionProbe {
 		if (!event.isConsumed()) {
 			throw new AssertionError("F11 did not activate Set All Singles");
 		}
+	}
+
+	private static void pressReviewKey(MainFrame frame, SudokuPanel panel, int eventId) throws Exception {
+		KeyEvent event = new KeyEvent(panel, eventId, System.currentTimeMillis(), 0,
+				KeyEvent.VK_Q, 'q');
+		((java.awt.KeyEventDispatcher) readField(frame, MainFrame.class, "annotationKeyDispatcher"))
+				.dispatchKeyEvent(event);
+		if (!event.isConsumed()) throw new AssertionError("Q review shortcut was not handled");
+	}
+
+	private static BufferedImage renderBoard(SudokuPanel panel) {
+		BufferedImage image = new BufferedImage(panel.getWidth(), panel.getHeight(), BufferedImage.TYPE_INT_ARGB);
+		java.awt.Graphics2D graphics = image.createGraphics();
+		try { panel.paint(graphics); } finally { graphics.dispose(); }
+		return image;
+	}
+
+	private static boolean samePixels(BufferedImage a, BufferedImage b) {
+		if (a.getWidth() != b.getWidth() || a.getHeight() != b.getHeight()) return false;
+		for (int y = 0; y < a.getHeight(); y++)
+			for (int x = 0; x < a.getWidth(); x++)
+				if (a.getRGB(x, y) != b.getRGB(x, y)) return false;
+		return true;
 	}
 
 	private static final class NoProgressSolver extends SudokuSolver {

@@ -209,15 +209,29 @@ public final class TechniqueSelectorProbe {
 		require(firstNumber.equals(originalIndex.getText()),
 				"Up key did not follow the same similarity-ranked order as the mouse wheel");
 
-		// Changing the stable original number without pressing Enter must still be
-		// committed when the user dismisses the popup.
+		// Closing a browsed selection must preserve the previously committed choice.
 		originalIndex.setText("3");
 		setField(frame, "techniqueSelectorPopup", popup);
 		firePopupClosed(popup);
+		require(readField(frame, "selectedHintTechnique") == null,
+				"closing the selector committed an unconfirmed instance");
+
+		JPopupMenu confirmed = new PopupLayoutProbe();
+		installPopupLifecycle(frame, confirmed);
+		populate.invoke(frame, confirmed, types, ResourceBundle.getBundle("intl/MainFrame"));
+		java.awt.Container confirmedSelector = (java.awt.Container) confirmed.getComponent(0);
+		((JList<?>) findComponent(confirmedSelector, JList.class)).setSelectedIndex(1);
+		JTextField confirmedIndex = (JTextField) findComponent(confirmedSelector, JTextField.class);
+		confirmedIndex.setText("3");
+		setField(frame, "techniqueSelectorPopup", confirmed);
+		Object enterKey = confirmedIndex.getInputMap(javax.swing.JComponent.WHEN_FOCUSED)
+				.get(javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ENTER, 0));
+		confirmedIndex.getActionMap().get(enterKey).actionPerformed(
+				new java.awt.event.ActionEvent(confirmedIndex,
+						java.awt.event.ActionEvent.ACTION_PERFORMED, "confirm"));
 		assertCommittedInstance(frame, type, instances, 2);
 
-		// Reopening must restore the exact committed instance. Closing again without
-		// touching n/m commits the currently displayed instance as-is.
+		// Reopening restores the committed instance; closing another draft cancels it.
 		JPopupMenu reopened = new PopupLayoutProbe();
 		installPopupLifecycle(frame, reopened);
 		populate.invoke(frame, reopened, types, ResourceBundle.getBundle("intl/MainFrame"));
@@ -228,6 +242,7 @@ public final class TechniqueSelectorProbe {
 		JTextField reopenedIndex = (JTextField) findComponent(reopenedSelector, JTextField.class);
 		require(reopenedIndex != null && "3".equals(reopenedIndex.getText()),
 				"reopened selector did not retain the committed 3/" + instances.size() + " instance");
+		reopenedIndex.setText("2");
 		setField(frame, "techniqueSelectorPopup", reopened);
 		firePopupClosed(reopened);
 		assertCommittedInstance(frame, type, instances, 2);
@@ -401,6 +416,10 @@ public final class TechniqueSelectorProbe {
 			List<SolutionStep> instances = entry.getValue();
 			for (int i = 0; instances != null && i < instances.size(); i++) {
 				if (instances.get(i).getCandidatesToDelete().size() >= 2) {
+					Sudoku2 afterFirst = frame.getSudokuPanel().getSudoku().clone();
+					Candidate firstCandidate = instances.get(i).getCandidatesToDelete().get(0);
+					afterFirst.delCandidate(firstCandidate.getIndex(), firstCandidate.getValue());
+					if (!SudokuPanel.isNativeConclusionExecutable(instances.get(i), afterFirst)) continue;
 					selectedType = entry.getKey();
 					selectedStep = instances.get(i);
 					selectedIndex = i;
@@ -429,8 +448,8 @@ public final class TechniqueSelectorProbe {
 		frame.sudokuStateChanged();
 		require(readField(frame, "selectedHintTechnique") == selectedType,
 				"partially completing an exact step reset the selector too early");
-		require(panel.getStep() != null,
-				"partially completing an exact step cleared its detailed preview too early");
+		require(panel.getStep() == null,
+				"a manual board edit retained a stale detailed preview");
 
 		for (int i = 1; i < eliminations.size() - 1; i++) {
 			Candidate candidate = eliminations.get(i);

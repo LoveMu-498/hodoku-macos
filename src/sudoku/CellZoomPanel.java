@@ -125,10 +125,12 @@ public class CellZoomPanel extends JPanel implements ActionListener {
 	private UIColorPalette colorPalette;
 	private ToolbarColorPalette toolbarPalette;
 	private boolean toolbarPaletteVisible;
+    private boolean paletteOptionDown;
 	private UIColorTools colorTools;
 	private JPanel annotationCardPanel;
 	private CardLayout annotationCardLayout;
 	private JComboBox<String> doodleWidthCombo;
+    private JComboBox<String> doodleModeCombo;
 	private JToggleButton chainStrongButton;
 	private JToggleButton chainWeakButton;
 	private JPanel chainCard;
@@ -298,8 +300,12 @@ public class CellZoomPanel extends JPanel implements ActionListener {
 		annotationCardPanel = new JPanel(annotationCardLayout);
 		annotationCardPanel.add(createToolCard("", null, null),
 				AnnotationTool.DEFAULT_MOUSE.name());
-		annotationCardPanel.add(createToolCard("", null, null),
-				AnnotationTool.CANDIDATE_COLORING.name());
+		JPanel coloringCard=new JPanel(new FlowLayout(FlowLayout.LEADING,4,1));
+        JComboBox<String> eraseScope=new JComboBox<String>(new String[]{bundle.getString("CellZoomPanel.eraseBoth.text"),
+                bundle.getString("CellZoomPanel.eraseCells.text"),bundle.getString("CellZoomPanel.eraseCandidates.text")});
+        eraseScope.setFocusable(false);
+        eraseScope.addActionListener(event -> {if(sudokuPanel!=null)sudokuPanel.setColoringEraseScope(eraseScope.getSelectedIndex());});
+        coloringCard.add(eraseScope);annotationCardPanel.add(coloringCard,AnnotationTool.CANDIDATE_COLORING.name());
 
 		JPanel doodleCard = new JPanel(new FlowLayout(FlowLayout.LEADING, 4, 1));
 		doodleWidthCombo = new JComboBox<String>(new String[] { "·", "••", "●", "●●" });
@@ -312,6 +318,14 @@ public class CellZoomPanel extends JPanel implements ActionListener {
 				if (sudokuPanel != null) sudokuPanel.setDoodleWidthIndex(doodleWidthCombo.getSelectedIndex());
 			}
 		});
+        doodleModeCombo = new JComboBox<String>(new String[] {
+                bundle.getString("CellZoomPanel.doodlePen.text"), bundle.getString("CellZoomPanel.doodleEraser.text") });
+        doodleModeCombo.setFocusable(false);
+        doodleModeCombo.setVisible(false);
+        doodleModeCombo.addActionListener(event -> {
+            if(sudokuPanel!=null)sudokuPanel.setDoodleFreeEraser(doodleModeCombo.getSelectedIndex()==1);
+        });
+        doodleCard.add(doodleModeCombo);
 		doodleCard.add(doodleWidthCombo);
 		annotationCardPanel.add(doodleCard, AnnotationTool.DOODLE.name());
 
@@ -344,15 +358,21 @@ public class CellZoomPanel extends JPanel implements ActionListener {
 		clearChains.addActionListener(new ActionListener() {
 			@Override public void actionPerformed(ActionEvent event) { sudokuPanel.clearUserChainsWithUndo(); }
 		});
+        JButton finishChain=new JButton(bundle.getString("CellZoomPanel.finishChain.text"));
+        finishChain.addActionListener(event -> sudokuPanel.finishCurrentUserChain());
+        chainCard.add(finishChain);
 		chainCard.add(clearChains);
 		chainCard.setToolTipText(chainAnalysisText);
 		annotationCardPanel.add(chainCard, AnnotationTool.FREE_CHAIN.name());
-		annotationCardPanel.add(createToolCard(bundle.getString("CellZoomPanel.boxGroups.text"),
+		JPanel boxCard=createToolCard(bundle.getString("CellZoomPanel.boxGroups.text"),
 				bundle.getString("CellZoomPanel.clear.text"), new ActionListener() {
 			@Override public void actionPerformed(ActionEvent event) {
 				sudokuPanel.clearBoxReasoningWithUndo();
 			}
-		}), AnnotationTool.BOX_SELECTION.name());
+		});
+        JButton inspectBox=new JButton(bundle.getString("CellZoomPanel.inspectBox.text"));
+        inspectBox.addActionListener(event -> sudokuPanel.inspectCurrentBoxGroup());inspectBox.setVisible(false);boxCard.add(inspectBox);
+        annotationCardPanel.add(boxCard,AnnotationTool.BOX_SELECTION.name());
 		add(annotationCardPanel);
 
 		javax.swing.GroupLayout jPanel1Layout = new javax.swing.GroupLayout(jPanel1);
@@ -980,6 +1000,7 @@ public class CellZoomPanel extends JPanel implements ActionListener {
 	}
 	
 	public void swapColors() {
+        if(sudokuPanel!=null)sudokuPanel.flushMappedClick();
 		if (!effectivePaletteOwner.isSecondarySupported()) {
 			return;
 		}
@@ -1000,6 +1021,7 @@ public class CellZoomPanel extends JPanel implements ActionListener {
     }
 
     void cyclePaletteColor(double rotation) {
+        if(sudokuPanel!=null&&sudokuPanel.isAnnotationPreviewHeld())return;
         if (lastPaletteWheelAt == 0) paletteWheelGate.reset();
         lastPaletteWheelAt = System.currentTimeMillis();
         int step = paletteWheelGate.step(rotation, lastPaletteWheelAt);
@@ -1007,7 +1029,9 @@ public class CellZoomPanel extends JPanel implements ActionListener {
     }
 
     void selectPaletteGroup(int group) {
+        if(sudokuPanel!=null)sudokuPanel.flushMappedClick();
         int sanitized = Math.max(0, Math.min(5, group));
+        if (sudokuPanel != null) sudokuPanel.doodleHypothesisPaletteWillChange(sanitized);
         Options options = Options.getInstance();
         options.setAnnotationPaletteGroup(effectivePaletteOwner, sanitized);
         projectPaletteForTool(sudokuPanel == null ? AnnotationTool.DEFAULT_MOUSE : sudokuPanel.getAnnotationTool());
@@ -1026,8 +1050,25 @@ public class CellZoomPanel extends JPanel implements ActionListener {
 
     boolean supportsSecondaryColor() { return effectivePaletteOwner.isSecondarySupported(); }
 
+    void setPaletteOptionDown(boolean down) {
+        if (paletteOptionDown == down) return;
+        paletteOptionDown = down;
+        if (toolbarPalette != null) toolbarPalette.refresh();
+    }
+
+    Color getDisplayedPaletteColor(int group) {
+        Options options = Options.getInstance();
+        boolean secondary = paletteOptionDown && supportsSecondaryColor();
+        int shade = options.isAnnotationPaletteSwapped(effectivePaletteOwner) ? 1 : 0;
+        return options.getColoringColors()[group * 2 + (secondary ? shade ^ 1 : shade)];
+    }
+
+    void refreshToolAttributes() {
+        if (toolbarPalette != null) toolbarPalette.refresh();
+    }
+
     ToolbarColorPalette getToolbarPalette() {
-        if (toolbarPalette == null) toolbarPalette = new ToolbarColorPalette(this, colorPalette);
+        if (toolbarPalette == null) toolbarPalette = new ToolbarColorPalette(this);
         return toolbarPalette;
     }
 
@@ -1043,6 +1084,9 @@ public class CellZoomPanel extends JPanel implements ActionListener {
 		return radioButtonDefault.isSelected();
 	}
 
+    void syncDoodleEraser(boolean eraser) {
+        int index=eraser?1:0;if(doodleModeCombo!=null&&doodleModeCombo.getSelectedIndex()!=index)doodleModeCombo.setSelectedIndex(index);
+    }
 	public boolean isDoodle() {
 		return radioButtonDoodle.isSelected();
 	}
@@ -1283,6 +1327,7 @@ public class CellZoomPanel extends JPanel implements ActionListener {
 	}
 
 	public void setPrimaryColor(Color color) {
+        if(sudokuPanel!=null)sudokuPanel.flushMappedClick();
 		Options.getInstance().setAnnotationPrimaryColor(effectivePaletteOwner, color);
 		projectPaletteForTool(sudokuPanel == null ? AnnotationTool.DEFAULT_MOUSE
 				: sudokuPanel.getAnnotationTool());

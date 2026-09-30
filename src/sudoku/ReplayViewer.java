@@ -128,8 +128,10 @@ public final class ReplayViewer extends JPanel {
     /** Called before application-wide shortcuts; only viewing commands or focus traversal escape. */
     public boolean handleKeyEvent(KeyEvent event){
         if(event.getKeyCode()==KeyEvent.VK_TAB)return false;
+        if(event.getID()==KeyEvent.KEY_PRESSED&&event.getKeyCode()==KeyEvent.VK_ESCAPE){
+            controller.closeViewer();event.consume();return true;
+        }
         if(event.getID()==KeyEvent.KEY_PRESSED&&event.getModifiersEx()==0){switch(event.getKeyCode()){
-            case KeyEvent.VK_ESCAPE:controller.closeViewer();break;
             case KeyEvent.VK_LEFT:showFrame(index-1);break;case KeyEvent.VK_RIGHT:showFrame(index+1);break;
             case KeyEvent.VK_HOME:showFrame(0);break;case KeyEvent.VK_END:showFrame(frames.size()-1);break;
             case KeyEvent.VK_ENTER:case KeyEvent.VK_SPACE:if(event.getComponent() instanceof AbstractButton)((AbstractButton)event.getComponent()).doClick();else setPlaying(!playing);break;
@@ -140,9 +142,9 @@ public final class ReplayViewer extends JPanel {
     private void display(int positionIndex){
         if(frames.isEmpty()){description.setReferenceText(ReplayText.text("empty"));board.setVisible(false);for(JButton b:new JButton[]{first,previousGroup,previous,play,next,nextGroup,last})b.setEnabled(false);return;}
         index=Math.max(0,Math.min(frames.size()-1,positionIndex));ReplayFrame frame=frames.get(index);
-        try{ReplayFrame rendered=index==0&&session.initialAnnotations().length>0?new ReplayFrame(frame.operationId,frame.wallTimeMillis,frame.elapsedMillis,"authored-input",frame.label,frame.board,session.initialAnnotations()):frame;board.displayReplayFrame(rendered);SolutionStep proof=ReplayEvidence.proof(frame.evidence());
+        try{ReplayFrame rendered=index==0&&session.initialAnnotations().length>0?new ReplayFrame(frame.operationId,frame.wallTimeMillis,frame.elapsedMillis,"authored-input",frame.label,frame.board,session.initialAnnotations(),frame.annotations):frame;board.displayReplayFrame(rendered);SolutionStep proof=ReplayEvidence.proof(frame.evidence());
             if(proof==null&&"apply".equals(frame.kind))for(int prior=index-1;prior>=0&&frames.get(prior).operationId==frame.operationId;prior--){proof=ReplayEvidence.proof(frames.get(prior).evidence());if(proof!=null)break;}
-            frameTitle.setText(frame.label);frameTitle.setToolTipText(" "+frame.label);description.setReferenceText(proof==null?frame.label:proof.toString(2));description.setCaretPosition(0);board.setVisible(true);error.setText("");}
+            frameTitle.setText(frame.label);frameTitle.setToolTipText(" "+frame.label);description.setReferenceText(proof==null?frame.label+"\n"+frame.annotations.description():proof.toString(2));description.setCaretPosition(0);board.setVisible(true);error.setText(frame.annotations.notice());}
         catch(Exception failure){board.setVisible(false);error.setText(ReplayText.text("frameError",failure.getMessage()));description.setReferenceText(frame.label);playing=false;playback.stop();play.setText("▶");}
         cursorMillis=frame.elapsedMillis;updateProgress();position.setToolTipText(ReplayText.text("wallTime",new java.util.Date(frame.wallTimeMillis).toString()));
         first.setEnabled(index>0);previousGroup.setEnabled(index>0);previous.setEnabled(index>0);next.setEnabled(index<frames.size()-1);nextGroup.setEnabled(frames.get(index).operationId!=frames.get(frames.size()-1).operationId);last.setEnabled(index<frames.size()-1);play.setEnabled(frames.size()>1||maxTime>0);

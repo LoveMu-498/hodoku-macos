@@ -16,5 +16,13 @@ final class AnnotationTimeline {
             if(!Objects.equals(previous.get(entry.getKey()),entry.getValue()))later.add(entry.getKey());
         later.retainAll(objects.keySet());previous=new HashMap<>(objects);
     }
+    AnnotationTimeline snapshot() {
+        AnnotationTimeline copy=new AnnotationTimeline();copy.proof=proof;
+        copy.previous=new HashMap<>(previous);copy.later.addAll(later);return copy;
+    }
+    void restore(AnnotationTimeline snapshot) {
+        proof=snapshot.proof;previous=new HashMap<>(snapshot.previous);
+        later.clear();later.addAll(snapshot.later);
+    }
     boolean isLater(String key){return proof!=null&&later.contains(key);}
 }

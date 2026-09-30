@@ -62,7 +62,7 @@ public final class AnnotationDeletionProbe {
                 Point start=node(p,2,1),end=node(p,6,1);Point middle=new Point((start.x+end.x)/2,(start.y+end.y)/2);
                 drag(p,new Point(middle.x-8,middle.y-8),new Point(middle.x+8,middle.y+8),MouseEvent.BUTTON1,deletion);
                 require(p.getUserChainCount()==0&&!p.currentReasoningChains().isEmpty(),"segment crossing did not delete whole old chain only");
-                p.undoCurrentAnnotation();require(p.getUserChainCount()==1,"chain delete undo");
+                p.undoCurrentAnnotation();require(UserChainAssembly.assemble(p.currentReasoningChains()).chain.getNodes().size()==3,"chain delete undo");
                 verifyAssembly();verifyLoops();
                 System.out.println("Annotation deletion checks passed: modifiers, ellipse, circular/rectangular clipping, undo/redo/Escape, cross-group subtraction, crossing-chain delete, all-segment assembly");
             }catch(Throwable t){failure[0]=t;}finally{frame.dispose();}

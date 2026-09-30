@@ -10,17 +10,71 @@ import tempfile
 import time
 
 PROBES = [
-    'ReplayCoreProbe', 'ReplayLifecycleProbe', 'ReplayProofProbe', 'ReplayAuthoredProbe',
-    'ReplayEvidenceFailureProbe', 'ReplayRetentionProbe', 'ReplayRecoveryProbe',
-    'ReplayRecoveryGuiProbe', 'ReplayRecoveryAuditProbe', 'ReplayRetentionNativeProbe',
-    'ReplayViewerProbe', 'ReplayViewerEdgeProbe', 'ReplayBranchProbe',
-    'ReplayInterchangeProbe', 'ReplayInterchangeGuiProbe', 'ReplayInterruptionPresentationProbe',
-    'ReplayNativeInputProbe', 'ReplayMouseInteractionProbe', 'ReplayPlaybackHintProbe',
-    'ReplayDialogMouseProbe', 'ReplaySharingProbe',
-    'ChainTextCodecProbe', 'ChainOriginProbe', 'DoodleWheelProbe', 'AuthoredPreviewRenderingProbe',
-    'AlsManualChainProbe', 'AlsManualChainTransactionProbe', 'GroupedChainProbe',
-    'GroupedChainInteractionProbe', 'GroupedChainTransactionProbe', 'ChainEditingProbe',
-    'AnnotationTimelineProbe', 'AnchoredDoodleProbe', 'PairedPaletteInvariantProbe',
+    'TplsImmediateCoverageProbe',
+    'ImmediateMappedClickProbe',
+    'AnnotationDispatchDeadlineProbe',
+    'TplsInputMappingProbe',
+    'TplsGestureRefinementProbe',
+    'TplsABEraseProbe',
+    'ContinuousEraserWheelProbe',
+    'DoodleFeedbackPolishProbe',
+    'ProjectedDeletionAndBoxPriorityProbe',
+    'ChainBlockedPreviewProbe',
+    'DoodleCommandPolarityProbe',
+    'DoodleHypothesisCompositionProbe',
+    'DoodleCompositionApplyProbe',
+    'DoodleLegacyStateProbe',
+    'DoodleHypothesisInputRenderingProbe',
+    'DoodleOrthogonalUiProbe',
+    'DoodleStartFourStateProbe',
+    'DoodlePFocusPreviewProbe',
+    'DoodleEnterNativeProbe',
+    'GlobalSinglesShortcutProbe',
+    'BoxSelectionToggleProbe',
+    'BoxSingleReasoningProbe',
+    'GeneralizedChainProbe',
+    'GeneralizedChainInteractionProbe',
+    'CompletePathMatchProbe',
+    'TabExactPathInteractionProbe',
+    'EmptyTechniqueKeyForwardProbe',
+    'ChainPreviewEscapeProbe',
+    'ChainPreviewSourceChangeProbe',
+    'ChainTailBacktrackProbe',
+    'ChainTailBacktrackNativeProbe',
+    'ChainEndpointCueProbe',
+    'CandidateFilterGroupProbe',
+    'ReplayCoreProbe',
+    'ReplayLifecycleProbe',
+    'ReplayProofProbe',
+    'ReplayAuthoredProbe',
+    'ReplayEvidenceFailureProbe',
+    'ReplayRetentionProbe',
+    'ReplayRecoveryProbe',
+    'ReplayRecoveryGuiProbe',
+    'ReplayRecoveryAuditProbe',
+    'ReplayRetentionNativeProbe',
+    'ReplayRetirementProbe',
+    'ReplayViewerProbe',
+    'ReplayViewerEdgeProbe',
+    'ReplayBranchProbe',
+    'ReplayInterchangeProbe',
+    'ReplayInterchangeGuiProbe',
+    'ReplayInterruptionPresentationProbe',
+    'ReplayNativeInputProbe',
+    'ReplayMouseInteractionProbe',
+    'ReplayPlaybackHintProbe',
+    'ReplayDialogMouseProbe',
+    'ReplaySharingProbe',
+    'ReplayEscapeProbe',
+    'ChainTextCodecProbe',
+    'DoodleWheelProbe',
+    'AuthoredPreviewRenderingProbe',
+    'AlsManualChainProbe',
+    'AlsManualChainTransactionProbe',
+    'ChainEditingProbe',
+    'AnnotationTimelineProbe',
+    'AnchoredDoodleProbe',
+    'PairedPaletteInvariantProbe',
 ]
 
 
@@ -30,6 +84,7 @@ def main():
     parser.add_argument('--test-classes', type=Path, required=True)
     parser.add_argument('--report-dir', type=Path, required=True)
     parser.add_argument('--only', nargs='+', choices=PROBES)
+    parser.add_argument('--ui-element-probes', action='store_true', help='Set UIElement for test JVMs only; never changes the delivered launcher')
     args = parser.parse_args()
     app = args.app.resolve()
     report = args.report_dir.resolve()
@@ -48,7 +103,10 @@ def main():
         command = [str(java), '--add-exports=java.desktop/com.apple.laf=ALL-UNNAMED',
                    '-Duser.language=zh', '-Duser.home='+str(root/'home'),
                    '-Dhodoku.data.dir='+str(root/'data'), '-Djava.io.tmpdir='+str(root/'tmp'),
+                   '-Dhodoku.probe.output='+str(root/'tmp'),
                    '-cp', str(jar)+os.pathsep+str(args.test_classes.resolve()), 'sudoku.'+name]
+        if args.ui_element_probes:
+            command.insert(1, '-Dapple.awt.UIElement=true')
         if name in ('ReplayRecoveryProbe','ReplayRecoveryGuiProbe','ReplayRecoveryAuditProbe'):
             command.append(str(root/'scenarios'))
         if name == 'ReplaySharingProbe':

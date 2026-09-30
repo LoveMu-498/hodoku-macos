@@ -387,6 +387,20 @@ public final class SudokuAppearancePalette {
 				? DARK_INK : HINT_FOREGROUND;
 	}
 
+    /** Large hypothesis digits keep their palette hue rather than falling back to normal ink. */
+    public Color getReadablePreviewForeground(Color background, Color preferred) {
+        if(background==null || preferred==null || contrastRatio(background,preferred)>=3.0)return preferred;
+        Color target=contrastRatio(background,Color.WHITE)>contrastRatio(background,Color.BLACK)?Color.WHITE:Color.BLACK;
+        for(int i=1;i<=20;i++) {
+            float amount=i/20f;
+            Color adjusted=new Color(Math.round(preferred.getRed()*(1-amount)+target.getRed()*amount),
+                    Math.round(preferred.getGreen()*(1-amount)+target.getGreen()*amount),
+                    Math.round(preferred.getBlue()*(1-amount)+target.getBlue()*amount));
+            if(contrastRatio(background,adjusted)>=3.0)return adjusted;
+        }
+        return target;
+    }
+
 	private Color map(Color actual, Color factoryDefault, Color darkColor) {
 		return dark && actual != null && actual.equals(factoryDefault) ? darkColor : actual;
 	}

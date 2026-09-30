@@ -2457,6 +2457,13 @@ public final class Options {
         normalizePaletteSelection(selection);
     }
 
+    boolean isAnnotationPaletteSwapped(AnnotationPaletteOwner owner) {
+        if (!owner.isSecondarySupported()) return false;
+        AnnotationPaletteSelection selection = selectionFor(owner);
+        normalizePaletteSelection(selection);
+        return selection.isSwapped();
+    }
+
     public void swapAnnotationPaletteColors(AnnotationPaletteOwner owner) {
         if (!owner.isSecondarySupported()) return;
         AnnotationPaletteSelection selection = selectionFor(owner);

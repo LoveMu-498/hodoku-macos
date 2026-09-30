@@ -29,7 +29,7 @@ public final class GroupedChainProbe {
         UserChainNode a=node(1,0,1), b=node(1,2), far=node(1,9);
         check(a.validShape() && node(1,0,1,2).validShape(),"valid group shape");
         check(node(1,0,10).validShape() && node(1,0,3).validShape(),"shared house rejected");
-        check(!node(1,0,1,2,3).validShape() && !node(1,0,40).validShape(),"invalid group admitted");
+        check(node(1,0,1,2,3).validShape() && node(1,0,40).validShape(),"generalized group rejected");
         check(!UserChainValidator.weak(a,node(1,27)),"only first member sees target");
         check(!UserChainValidator.weak(a,node(1,1,2)),"overlap accepted");
         check(a.identity()==node(1,1,0).identity(),"order changes identity");

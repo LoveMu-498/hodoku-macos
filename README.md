@@ -15,13 +15,16 @@
 公开源码：[LoveMu-498/hodoku-macos](https://github.com/LoveMu-498/hodoku-macos)。
 下载安装包：[Releases](https://github.com/LoveMu-498/hodoku-macos/releases)。
 
-## 2.3.2 亮点
+## 2.3.3 亮点
 
-- 单次解题回放：时间轴、连续播放、证明与盘面状态、保存点跳转；可从指定帧开始新的解题。
-- 自包含 `.hrep` 文件导入导出，支持 macOS 系统分享面板；接收方无需你的本地记录目录。
-- 修复回放开发阶段的按钮、文件弹窗输入问题，改进画链起点提示、链文字互转及涂鸦滚轮操作。
+- T/P/L/S 预览与擦除入口统一，单击立即反馈，双击回退后执行对应动作。
+- 圈叉起点与当前来源多色合成，Command 分别选择圈／叉，Enter 明确应用。
+- 画链退回可继续绘制，单格框选可预览并应用单数结论。
 
-[版本推进与 bug 修复说明](docs/releases/2.3.2.md) · [回放与分享指南](docs/replay-sharing.md)
+**升级注意：旧 Mac 回放不迁移，首次启动会清理识别出的托管旧记录。请先正常退出旧版，
+保留旧版应用，将需要保留的回放复制到数据目录之外。**
+
+[版本与 Bug 修复说明](docs/releases/2.3.3.md) · [快捷键与圈叉指南](docs/annotation-input.md) · [回放与分享指南](docs/replay-sharing.md)
 
 ## macOS 分享版
 

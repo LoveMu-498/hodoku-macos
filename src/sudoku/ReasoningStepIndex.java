@@ -47,7 +47,7 @@ final class ReasoningStepIndex {
                 break;
             }
             // Chains, ALS and colored candidate structures are decoded below.
-            if (step.getChains().isEmpty() && step.getAlses().isEmpty()
+            if (step.getChains().isEmpty() && step.getGeneralizedProofs().isEmpty() && step.getAlses().isEmpty()
                     && step.getColorCandidates().isEmpty()) out.supported = false;
         }
         for (Candidate c : step.getFins()) out.premise(c.getIndex(), c.getValue(), board);
@@ -71,6 +71,7 @@ final class ReasoningStepIndex {
                 }
             }
         }
+        for(UserChainProof p:step.getGeneralizedProofs())for(UserChainNode n:p.getNodes())for(int atom:n.atoms())out.premise(atom/10,atom%10,board);
         return out;
     }
     private void premise(int c, int v, Sudoku2 board) {
@@ -111,6 +112,8 @@ final class ReasoningStepIndex {
         for (AlsInSolutionStep als : s.getAlses()) key.append('|').append(als.getIndices()).append(':').append(als.getCandidates());
         for (Chain chain : s.getChains()) key.append('|').append(Arrays.toString(
                 Arrays.copyOfRange(chain.getChain(), chain.getStart(), chain.getEnd() + 1)));
+        for(UserChain c:s.getAuthoredChainDiagram()){key.append("|D:").append(c.isClosed()).append(c.getStrongRelations());for(UserChainNode n:c.getNodes())key.append(n.key());}
+        for(UserChainProof p:s.getGeneralizedProofs())key.append("|OR:").append(p.key());
         return key.append('|').append(s.getEntity()).append(':').append(s.getEntityNumber())
                 .append(':').append(s.getEntity2()).append(':').append(s.getEntity2Number())
                 .append(':').append(s.isIsSiamese()).toString();

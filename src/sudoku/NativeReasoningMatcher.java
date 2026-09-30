@@ -6,6 +6,7 @@
 package sudoku;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -197,19 +198,87 @@ final class NativeReasoningMatcher {
 	static Match findBoxMatch(List<SolutionStep> catalog, BoxProof selected) {
 		if (catalog == null || selected == null) return null;
 		SolutionStep best = null;
-		int bestPriority = Integer.MAX_VALUE;
 		for (SolutionStep step : catalog) {
 			BoxProof nativeProof = normalizeNativeBoxProof(step);
 			if (selected.equals(nativeProof) && hasExecutableDeletion(step)) {
-				int priority = configuredPriority(step);
-				if (best == null || priority < bestPriority) {
-					best = step;
-					bestPriority = priority;
-				}
+				if (preferredBoxStep(step, best)) best = step;
 			}
 		}
 		return best == null ? null : new Match(best, keyForStep(best));
 	}
+
+    // Windows reference 20260925: detectSinglesInSelection, then BOX_SELECTION_FISH_TYPES.
+    // This affects only selection of a Box result; ordinary hint configuration is unchanged.
+    private static final SolutionType[] BOX_PRIORITY = {
+            SolutionType.NAKED_SINGLE,
+            SolutionType.HIDDEN_SINGLE,
+            SolutionType.NAKED_PAIR,
+            SolutionType.NAKED_TRIPLE,
+            SolutionType.NAKED_QUADRUPLE,
+            SolutionType.HIDDEN_PAIR,
+            SolutionType.HIDDEN_TRIPLE,
+            SolutionType.HIDDEN_QUADRUPLE,
+            SolutionType.LOCKED_PAIR,
+            SolutionType.LOCKED_TRIPLE,
+            SolutionType.LOCKED_CANDIDATES_1,
+            SolutionType.LOCKED_CANDIDATES_2,
+            SolutionType.X_WING,
+            SolutionType.FINNED_X_WING,
+            SolutionType.SASHIMI_X_WING,
+            SolutionType.SWORDFISH,
+            SolutionType.FINNED_SWORDFISH,
+            SolutionType.SASHIMI_SWORDFISH,
+            SolutionType.JELLYFISH,
+            SolutionType.FINNED_JELLYFISH,
+            SolutionType.SASHIMI_JELLYFISH,
+            SolutionType.SKYSCRAPER,
+            SolutionType.TWO_STRING_KITE,
+            SolutionType.EMPTY_RECTANGLE,
+            SolutionType.XY_WING,
+            SolutionType.XYZ_WING,
+            SolutionType.W_WING,
+            SolutionType.XY_CHAIN,
+            SolutionType.REMOTE_PAIR,
+            SolutionType.ALS_XZ,
+            SolutionType.ALS_XY_WING,
+            SolutionType.ALS_XY_CHAIN,
+            SolutionType.SUE_DE_COQ,
+            SolutionType.GROUPED_AIC,
+            SolutionType.GROUPED_NICE_LOOP
+    };
+
+    private static int boxPriority(SolutionType type) {
+        if(type==SolutionType.GROUPED_CONTINUOUS_NICE_LOOP
+                || type==SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP)type=SolutionType.GROUPED_NICE_LOOP;
+        for(int i=0;i<BOX_PRIORITY.length;i++)if(BOX_PRIORITY[i]==type)return i;
+        return BOX_PRIORITY.length;
+    }
+
+    static boolean preferredBoxStep(SolutionStep candidate, SolutionStep current) {
+        if(current==null)return true;
+        int candidatePriority=boxPriority(candidate.getType()),currentPriority=boxPriority(current.getType());
+        if(candidatePriority!=currentPriority)return candidatePriority<currentPriority;
+        // Keep the first native result within a Windows technique. Retain macOS-only
+        // techniques after that list, using their existing configured order.
+        return candidatePriority==BOX_PRIORITY.length && configuredPriority(candidate)<configuredPriority(current);
+    }
+
+    /** Singles identify their target as a conclusion, not as a premise. */
+    static boolean matchesBoxSelection(SolutionStep step, Sudoku2 board, Set<Integer> selected) {
+        if (step == null || selected == null || selected.isEmpty()) return false;
+        ReasoningStepIndex index = ReasoningStepIndex.from(step, board);
+        if (!index.supported) return false;
+        switch (step.getType()) {
+        case FULL_HOUSE:
+        case NAKED_SINGLE:
+        case HIDDEN_SINGLE:
+            return selected.size() == 1 && index.conclusionCells.equals(selected)
+                    && SudokuPanel.isNativeConclusionExecutable(step, board);
+        default:
+            return !index.premiseCells.isEmpty() && index.premiseCells.equals(selected)
+                    && SudokuPanel.isNativeConclusionExecutable(step, board);
+        }
+    }
 
 	static Match matchBox(List<SolutionStep> catalog, Sudoku2 board, SudokuSet selected) {
 		return findBoxMatch(catalog, normalizeBoxSelection(selected, board));
@@ -233,6 +302,94 @@ final class NativeReasoningMatcher {
 		return best == null ? null : new Match(best, keyForStep(best));
 	}
 
+    /** Visual path identity for Tab: complete propositions and every drawn link. */
+    static String authoredCompletePath(UserChain chain, Sudoku2 board) {
+        if (chain == null || board == null || chain.isActive()) return null;
+        List<UserChainNode> source = chain.getNodes();
+        int size = source == null ? 0 : source.size();
+        if (size < (chain.isClosed() ? 3 : 2)
+                || chain.getStrongRelations().size() != size - (chain.isClosed() ? 0 : 1)) return null;
+        List<String> nodes = new ArrayList<String>(size);
+        for (UserChainNode node : source) {
+            if (node == null || !node.nativeEncodable()) return null;
+            for (int atom : node.atoms())
+                if (!board.isCandidate(atom / 10, atom % 10)) return null;
+            if (nodes.contains(node.key())) return null;
+            nodes.add(node.key());
+        }
+        for (int i = 0; i < chain.getStrongRelations().size(); i++) {
+            if (chain.getStrongRelations().get(i) == null) return null;
+            if (chain.getStrongRelations().get(i)
+                    && !UserChainValidator.ordinaryStrong(board, source.get(i), source.get((i + 1) % size)))
+                return null; // An ALS-only strong relation has no equal GROUP_NODE proof source.
+        }
+        return canonicalPath(nodes, chain.getStrongRelations(), chain.isClosed());
+    }
+
+    static boolean matchesCompletePath(String authoredPath, SolutionStep step) {
+        if (authoredPath == null || step == null || step.getChains().size() != 1) return false;
+        Chain chain = step.getChains().get(0);
+        if (chain == null || chain.getChain() == null || chain.getStart() < 0
+                || chain.getEnd() <= chain.getStart() || chain.getEnd() >= chain.getChain().length) return false;
+        List<String> nodes = new ArrayList<String>();
+        for (int i = chain.getStart(); i <= chain.getEnd(); i++) {
+            int entry = chain.getChain()[i];
+            if (entry <= 0) return false; // negative entries encode branches
+            int digit = Chain.getSCandidate(entry), first = Chain.getSCellIndex(entry);
+            int kind = Chain.getSNodeType(entry);
+            if (!validCandidate(first, digit)) return false;
+            int[] atoms;
+            if (kind == Chain.NORMAL_NODE) atoms = new int[]{first * 10 + digit};
+            else if (kind == Chain.GROUP_NODE) {
+                int second = Chain.getSCellIndex2(entry), third = Chain.getSCellIndex3(entry);
+                if (!validCandidate(second, digit)) return false;
+                atoms = third < 0 ? new int[]{first * 10 + digit, second * 10 + digit}
+                        : new int[]{first * 10 + digit, second * 10 + digit, third * 10 + digit};
+                if (third >= 0 && !validCandidate(third, digit)) return false;
+                Arrays.sort(atoms);
+                if (atoms[0] == atoms[1] || atoms.length == 3 && atoms[1] == atoms[2]) return false;
+            } else return false; // ALS nodes require a separate proof representation.
+            nodes.add(Arrays.toString(atoms));
+        }
+        boolean repeatedStart = nodes.get(0).equals(nodes.get(nodes.size() - 1));
+        SolutionType type = step.getType();
+        boolean loopType = type == SolutionType.CONTINUOUS_NICE_LOOP
+                || type == SolutionType.DISCONTINUOUS_NICE_LOOP
+                || type == SolutionType.GROUPED_CONTINUOUS_NICE_LOOP
+                || type == SolutionType.GROUPED_DISCONTINUOUS_NICE_LOOP;
+        boolean closed = repeatedStart || loopType;
+        if (repeatedStart) nodes.remove(nodes.size() - 1);
+        if (nodes.size() < (closed ? 3 : 2) || new java.util.HashSet<String>(nodes).size() != nodes.size()) return false;
+        List<Boolean> relations = new ArrayList<Boolean>();
+        for (int i = chain.getStart() + 1; i <= chain.getEnd(); i++) relations.add(chain.isStrong(i));
+        if (closed && !repeatedStart) relations.add(chain.isStrong(chain.getStart()));
+        return authoredPath.equals(canonicalPath(nodes, relations, closed));
+    }
+
+    private static String canonicalPath(List<String> nodes, List<Boolean> links, boolean closed) {
+        int size = nodes.size(), expected = closed ? size : size - 1;
+        if (links.size() != expected) return null;
+        String best = null;
+        for (int direction = 0; direction < 2; direction++) {
+            for (int offset = 0; offset < (closed ? size : 1); offset++) {
+                StringBuilder key = new StringBuilder(closed ? "C|" : "O|");
+                for (int edge = 0; edge < expected; edge++) {
+                    int from = closed ? Math.floorMod(offset + (direction == 0 ? edge : -edge), size)
+                            : (direction == 0 ? edge : size - 1 - edge);
+                    int to = closed ? Math.floorMod(offset + (direction == 0 ? edge + 1 : -edge - 1), size)
+                            : (direction == 0 ? edge + 1 : size - 2 - edge);
+                    int link = direction == 0 ? (closed ? from : edge)
+                            : (closed ? to : size - 2 - edge);
+                    key.append(nodes.get(from)).append(links.get(link) ? '=' : '-')
+                            .append(nodes.get(to)).append(';');
+                }
+                String value = key.toString();
+                if (best == null || value.compareTo(best) < 0) best = value;
+            }
+        }
+        return best;
+    }
+
 	static boolean sameAuthoredChain(UserChain first, UserChain second) {
 		if (first == second) return true;
 		if (first == null || second == null || first.isClosed() != second.isClosed()
@@ -246,7 +403,7 @@ final class NativeReasoningMatcher {
 		for (int i = 0; i < firstNodes.size(); i++) {
 			UserChainNode left = firstNodes.get(i);
 			UserChainNode right = secondNodes.get(i);
-			if (left == null || right == null || left.identity() != right.identity()) return false;
+			if (left == null || right == null || !left.key().equals(right.key())) return false;
 		}
 		return true;
 	}
@@ -301,7 +458,7 @@ final class NativeReasoningMatcher {
 	}
 
 	static NativeStepKey keyForStep(SolutionStep step) {
-        if(step != null && step.isAuthoredPlacement())return new NativeStepKey("SET|"+ReasoningStepIndex.identity(step));
+        if(step != null && (step.isAuthoredPlacement() || !step.getGeneralizedProofs().isEmpty()))return new NativeStepKey("SET|"+ReasoningStepIndex.identity(step));
 		Proof proof = normalizeNativeBoxProof(step);
 		if (proof == null) proof = normalizeNativeChainProof(step);
 		if (proof == null) return new NativeStepKey(ReasoningStepIndex.identity(step));

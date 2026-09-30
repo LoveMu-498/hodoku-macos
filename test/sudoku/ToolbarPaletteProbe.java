@@ -58,11 +58,13 @@ public final class ToolbarPaletteProbe {
                 board.setAnnotationTool(AnnotationTool.CANDIDATE_COLORING); pair(palette,colors,1,false);
                 JToolBar toolbar = (JToolBar)read(frame,"jToolBar1");
                 ToolbarColorPalette compact = palette.getToolbarPalette();
-                require(compact.getParent() == toolbar,"palette not in toolbar");
+                require(compact.getParent().getParent() == toolbar,"tool attributes not grouped in toolbar");
+                require(!SwingUtilities.isDescendingFrom(compact.getStatusPalette(), toolbar), "colors remained in toolbar");
                 require(!((Component)read(palette,"colorPalette")).isVisible(),"duplicate sidebar palette");
-                palette.setToolbarPaletteVisible(false);
-                require(((Component)read(palette,"colorPalette")).isVisible(),"hidden-toolbar fallback lost");
-                palette.setToolbarPaletteVisible(true);
+                toolbar.setVisible(false);
+                require(compact.getStatusPalette().isShowing(), "status palette hidden with toolbar");
+                require(!((Component)read(palette,"colorPalette")).isVisible(), "duplicate palette when toolbar hidden");
+                toolbar.setVisible(true);
                 for (int width : new int[]{1120,768}) {
                     frame.setSize(width,850); frame.validate();
                     require(compact.getBounds().x + compact.getWidth() <= toolbar.getWidth(),"palette clipped at " + width);

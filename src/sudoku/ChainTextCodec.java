@@ -21,12 +21,16 @@ public final class ChainTextCodec {
         public boolean matches(Sudoku2 b){return Arrays.equals(board.getValues(),b.getValues())&&Arrays.equals(board.getCells(),b.getCells());}
         public String text(){return format(board,chains,step);}
     }
-    private static List<UserChain> copy(List<UserChain> source){
+    static List<UserChain> copy(List<UserChain> source){
         List<UserChain> out=new ArrayList<>();for(UserChain c:source){UserChain n=new UserChain();n.setClosed(c.isClosed());
             for(UserChainNode p:c.getNodes())n.getNodes().add(p.copy());n.getStrongRelations().addAll(c.getStrongRelations());out.add(n);}return out;
     }
     private static String cells(int[] cells){List<Integer> c=new ArrayList<>();for(int x:cells)c.add(x);return SolutionStep.getCompactCellPrint(c);}
-    private static String node(UserChainNode n){return "("+n.getCandidate()+")"+cells(n.cells());}
+    static String node(UserChainNode n){
+        if(n.sameDigit()!=0)return "("+n.sameDigit()+")"+cells(n.cells());
+        List<String> parts=new ArrayList<>();for(int atom:n.atoms())parts.add("("+(atom%10)+")"+cells(new int[]{atom/10}));
+        return "{"+String.join(" | ",parts)+"}";
+    }
     public static String format(Sudoku2 board,List<UserChain> chains,SolutionStep step){
         StringBuilder out=new StringBuilder();String border="+-------------------------+-------------------------+-------------------------+\n";
         out.append(border);
@@ -61,8 +65,16 @@ public final class ChainTextCodec {
     }
     /** Native non-branching chains can share the same complete format; unsupported nets stay native text. */
     static String formatNativeStep(Sudoku2 board,SolutionStep step){
-        if(step.getChains().isEmpty())return null;
+        if(!step.getAuthoredChainDiagram().isEmpty())return format(board,step.getAuthoredChainDiagram(),step);
+        if(step.getChains().isEmpty() && step.getGeneralizedProofs().isEmpty())return null;
         List<UserChain> chains=new ArrayList<>();
+        for(UserChainProof p:step.getGeneralizedProofs()){
+            UserChain c=new UserChain();for(int i=0;i<p.getNodes().size();i++){
+                c.getNodes().add(p.getNodes().get(i).copy());if(i>0)c.getStrongRelations().add(p.getTruths().get(i));
+            }
+            int last=c.getNodes().size()-1;if(last>1&&c.getNodes().get(0).key().equals(c.getNodes().get(last).key())){c.getNodes().remove(last);c.setClosed(true);}
+            chains.add(c);
+        }
         for(Chain raw:step.getChains()){
             UserChain c=new UserChain();
             for(int i=raw.getStart();i<=raw.getEnd();i++){
@@ -75,7 +87,7 @@ public final class ChainTextCodec {
                 if(!n.validShape())return null;
                 c.getNodes().add(n);if(i>raw.getStart())c.getStrongRelations().add(Chain.isSStrong(entry));
             }
-            int last=c.getNodes().size()-1;if(last>1&&c.getNodes().get(0).identity()==c.getNodes().get(last).identity()){
+            int last=c.getNodes().size()-1;if(last>1&&c.getNodes().get(0).key().equals(c.getNodes().get(last).key())){
                 c.getNodes().remove(last);c.setClosed(true);
             }
             chains.add(c);
@@ -105,9 +117,20 @@ public final class ChainTextCodec {
         }compact.appendTail(expanded);text=expanded.toString();
         UserChain chain=new UserChain();int pos=0;
         while(pos<text.length()){
-            Matcher m=NODE.matcher(text);m.region(pos,text.length());if(!m.lookingAt())throw new IllegalArgumentException();
-            int[] cs=parseCells(m.group(2));UserChainNode n=new UserChainNode(cs[0],Integer.parseInt(m.group(1)));if(cs.length>1)n.setGroupCells(cs);
-            if(!n.validShape())throw new IllegalArgumentException();chain.getNodes().add(n);pos=m.end();
+            UserChainNode n;
+            if(text.charAt(pos)=='{'){
+                int end=text.indexOf('}',pos);if(end<0)throw new IllegalArgumentException();
+                List<Integer> atoms=new ArrayList<>();
+                for(String part:text.substring(pos+1,end).split("\\|",-1)){
+                    Matcher m=NODE.matcher(part.trim());if(!m.matches())throw new IllegalArgumentException();
+                    int digit=Integer.parseInt(m.group(1));for(int cell:parseCells(m.group(2)))atoms.add(cell*10+digit);
+                }
+                n=UserChainNode.fromAtoms(atoms.stream().mapToInt(Integer::intValue).toArray(),null);pos=end+1;
+            }else{
+                Matcher m=NODE.matcher(text);m.region(pos,text.length());if(!m.lookingAt())throw new IllegalArgumentException();
+                int[] cs=parseCells(m.group(2));n=new UserChainNode(cs[0],Integer.parseInt(m.group(1)));if(cs.length>1)n.setGroupCells(cs);pos=m.end();
+            }
+            if(!n.validShape())throw new IllegalArgumentException();chain.getNodes().add(n);
             while(pos<text.length()&&Character.isWhitespace(text.charAt(pos)))pos++;
             if(pos==text.length())break;
             char op=text.charAt(pos++);if(op!='='&&op!='-')throw new IllegalArgumentException();chain.getStrongRelations().add(op=='=');
@@ -115,8 +138,8 @@ public final class ChainTextCodec {
             if(pos==text.length())throw new IllegalArgumentException();
         }
         int size=chain.getNodes().size();if(size==0)throw new IllegalArgumentException();
-        if(size>2&&chain.getNodes().get(0).identity()==chain.getNodes().get(size-1).identity()){chain.getNodes().remove(size-1);chain.setClosed(true);}
-        Set<Integer> seen=new HashSet<>();for(UserChainNode n:chain.getNodes())for(int c:n.cells())if(!seen.add(c*10+n.getCandidate()))throw new IllegalArgumentException();
+        if(size>2&&chain.getNodes().get(0).key().equals(chain.getNodes().get(size-1).key())){chain.getNodes().remove(size-1);chain.setClosed(true);}
+        Set<String> seen=new HashSet<>();for(UserChainNode n:chain.getNodes())if(!seen.add(n.key()))throw new IllegalArgumentException();
         return chain;
     }
     public static Document parse(String text){
@@ -143,7 +166,7 @@ public final class ChainTextCodec {
             List<UserChain> chains=new ArrayList<>();SolutionStep step=new SolutionStep(SolutionType.AIC);
             for(String line:body){
                 if(line.startsWith("Chain: "))chains.add(parseChain(line.substring(7)));
-                else if(line.startsWith("("))chains.add(parseChain(line));
+                else if(line.startsWith("(")||line.startsWith("{"))chains.add(parseChain(line));
                 else if(line.startsWith("ALS: ")){
                     Matcher m=Pattern.compile("ALS: \\(([1-9]+)\\)("+COORD+")").matcher(line);if(!m.matches())return null;
                     SudokuSet positions=new SudokuSet();for(int c:parseCells(m.group(2)))positions.add(c);
@@ -160,11 +183,14 @@ public final class ChainTextCodec {
                 }else return null;
             }
             if(chains.isEmpty())return null;
-            for(UserChain c:chains){int n=c.getNodes().size();int[] enc=new int[n+(c.isClosed()?1:0)];
-                for(int i=0;i<enc.length;i++)enc[i]=c.getNodes().get(i%n).encoded(i>0&&c.getStrongRelations().get(i-1));
-                step.addChain(0,enc.length-1,enc);
-                for(UserChainNode node:c.getNodes())for(int cell:node.cells())if(board.getValue(cell)!=0||!board.isCandidate(cell,node.getCandidate()))return null;
+            for(UserChain c:chains){int n=c.getNodes().size();UserChainProof proof=new UserChainProof();
+                for(int i=0;i<n+(c.isClosed()?1:0);i++){
+                    proof.getNodes().add(c.getNodes().get(i%n).copy());proof.getTruths().add(i>0&&c.getStrongRelations().get(i-1));
+                }
+                proof.addTo(step);
+                for(UserChainNode node:c.getNodes())for(int atom:node.atoms())if(board.getValue(atom/10)!=0||!board.isCandidate(atom/10,atom%10))return null;
             }
+            if(!step.getGeneralizedProofs().isEmpty())step.setAuthoredChainDiagram(copy(chains));
             Map<Integer,Integer> placements=new HashMap<>();for(int i=0;i<step.getValues().size();i++){
                 Integer old=placements.put(step.getIndices().get(i),step.getValues().get(i));if(old!=null&&!old.equals(step.getValues().get(i)))return null;
             }

@@ -13,10 +13,14 @@ public final class AnnotationReasoningScopeProbe {
  check(target!=null,"native hidden rectangle absent");check(CurrentReasoningMenu.acceptAnnotations(target,p.getSudoku(),boxes,Collections.emptySet(),Collections.emptySet(),Collections.emptySet()),"box index excludes native rectangle");
  for(int mode=0;mode<4;mode++) {final int kind=mode;
  edt(()->{if(menu()!=null)menu().setVisible(false);p.clearBoxReasoningWithUndo();Field cm=SudokuPanel.class.getDeclaredField("coloringMap"),cn=SudokuPanel.class.getDeclaredField("coloringCandidateMap");cm.setAccessible(true);cn.setAccessible(true);((Map<?,?>)cm.get(p)).clear();((Map<?,?>)cn.get(p)).clear();if(kind==0){Field box=SudokuPanel.class.getDeclaredField("boxReasoningGroups");box.setAccessible(true);((java.util.List<SudokuSet>)box.get(p)).get(0).add(0);for(int c:boxes)((java.util.List<SudokuSet>)box.get(p)).get(0).add(c);}else if(kind==1){for(int c:boxes)((Map<Integer,Color>)cm.get(p)).put(c,Color.ORANGE);}else if(kind==2){for(int c:boxes)((Map<Integer,Color>)cn.get(p)).put(c*10+1,Color.ORANGE);}else{Field a=SudokuPanel.class.getDeclaredField("activeUserChain");a.setAccessible(true);UserChain chain=GroupedChainProbe.chain(false,new UserChainNode[]{GroupedChainProbe.node(9,0),GroupedChainProbe.node(9,1)},false);chain.setActive(true);a.set(p,chain);}f.showCurrentReasoning(true);return null;});settle();
- check(edt(()->results().keySet().stream().anyMatch(AnnotationReasoningScopeProbe::hidden)),"digit filter hid annotation mode "+mode);
+ check(edt(()->results().keySet().stream().anyMatch(AnnotationReasoningScopeProbe::hidden)) == (mode != 3),
+     "Tab source matching mislabeled unrelated chain/box/color mode "+mode);
  }
  edt(()->{menu().setVisible(false);p.clearUserChainsWithUndo();Field cn=SudokuPanel.class.getDeclaredField("coloringCandidateMap");cn.setAccessible(true);((Map<?,?>)cn.get(p)).clear();f.showCurrentReasoning(true);return null;});settle();
  check(edt(()->results().keySet().stream().noneMatch(AnnotationReasoningScopeProbe::hidden)),"digit-only included multi-digit rectangle");
+ edt(()->{menu().setVisible(false);p.toggleCandidateValueFilter(2,true);f.showCurrentReasoning(true);return null;});settle();
+ check(edt(()->results().isEmpty()),"multiple selected digits should not provide a default Tab match");
+ edt(()->{menu().setVisible(false);p.toggleCandidateValueFilter(2,true);p.toggleCandidateValueFilter(9,true);return null;});
  System.out.println("User candidate fixture: native r1c2<>9 found for boxes/cell colors/candidate colors/chain despite digit 1; digit-only remains restricted");
  }finally{if(f!=null)edt(()->{f.dispose();return null;});}System.exit(0);}
 }

@@ -46,7 +46,7 @@ public final class ReplayController {
         library=new ReplayLibrary(directory);
         recovery=new ReplayRecovery(directory);
         ReplaySession restored=null;String restoreError=null;
-        try{restored=recovery.restore();}catch(Exception e){restoreError=ReplayText.text("restoreError",e.getMessage());LOG.log(Level.WARNING,restoreError,e);}
+        try{ReplayRetirement.clean(directory);restored=recovery.restore();}catch(Exception e){restoreError=ReplayText.text("restoreError",e.getMessage());LOG.log(Level.WARNING,restoreError,e);}
         if(restored!=null&&restore){
             // Only a clean checkpoint follows a successful native-session save. Equal clues
             // alone cannot establish attempt identity after a crash or same-puzzle restart.
@@ -135,7 +135,7 @@ public final class ReplayController {
     public void beginSession(ReplayBoard board){
         ReplaySession outgoing=session;
         if(session!=null){updateElapsed();if(session.endedAt==0)session.endedAt=clock.wallTimeMillis();persist();}
-        clock.reset(0);session=new ReplaySession(board,clock.wallTimeMillis());persist();
+        clock.reset(0);session=new ReplaySession(board,clock.wallTimeMillis());session.setInitialFrameAnnotations(live.captureReplayAnnotations());persist();
         if(outgoing!=null&&!outgoing.retained&&!outgoing.completed&&!outgoing.pinned&&!failedSaves.containsKey(outgoing.id)){
             try{library.discard(outgoing);}catch(java.io.IOException e){reportLibraryError(e);}
         }
@@ -156,7 +156,7 @@ public final class ReplayController {
         updateElapsed();
         ReplayBoard board=new ReplayBoard(live.getSudoku());
         if(board.equals(session.last().board))return;
-        appendOperation(Collections.singletonList(new ReplayFrame(session.last().operationId+1,clock.wallTimeMillis(),session.elapsedMillis,kind,label,board,null)));
+        appendOperation(Collections.singletonList(new ReplayFrame(session.last().operationId+1,clock.wallTimeMillis(),session.elapsedMillis,kind,label,board,null,live.captureReplayAnnotations())));
     }
     public void appendOperation(List<ReplayFrame> frames){
         if(session.completed||frames.isEmpty())return;
@@ -236,7 +236,7 @@ public final class ReplayController {
             raw=ReplayEvidence.input(authored.source,authored.boxes(),geometry);
         }else if(frameIndex==0)raw=source.initialAnnotations();
         retrySaves();if(error!=null||!failedSaves.isEmpty())throw new java.io.IOException(error==null?ReplayText.text("unsaved"):error);
-        ReplaySession next=new ReplaySession(frame.board,wallTimeMillis());next.sourceReplayId=source.id;next.sourceFrameIndex=frameIndex;next.setInitialAnnotations(raw);
+        ReplaySession next=new ReplaySession(frame.board,wallTimeMillis());next.sourceReplayId=source.id;next.sourceFrameIndex=frameIndex;next.setInitialAnnotations(raw);next.setInitialFrameAnnotations(frame.annotations);
         Sudoku2 selected=frame.board.toSudoku();
         if(selected.isSolved()&&selected.checkSudoku()){next.completed=true;next.retained=true;next.endedAt=next.startedAt;}
         ReplayFiles.validate(next);

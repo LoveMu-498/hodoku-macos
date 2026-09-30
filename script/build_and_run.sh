@@ -181,6 +181,7 @@ build_app() {
 		CurrentReasoningProbe \
 		NativeReasoningLibraryProbe \
 		GroupedChainProbe \
+		GeneralizedChainProbe \
 		AlsManualChainProbe \
 		ChainTextCodecProbe \
 		OptionsPersistenceProbe \

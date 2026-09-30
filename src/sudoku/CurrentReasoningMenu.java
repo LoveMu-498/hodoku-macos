@@ -16,6 +16,7 @@ final class CurrentReasoningMenu extends JPopupMenu {
     private final JPanel results = new JPanel(new BorderLayout());
     private final Map<SolutionStep, Integer> masks = new IdentityHashMap<SolutionStep, Integer>();
     private final Set<SolutionStep> verified = Collections.newSetFromMap(new IdentityHashMap<SolutionStep, Boolean>());
+    private final Set<SolutionStep> exactChainSteps = Collections.newSetFromMap(new IdentityHashMap<SolutionStep, Boolean>());
     private final Map<Integer, List<Color>> colors = new HashMap<Integer, List<Color>>();
     private List<UserChain> chainInputs = Collections.emptyList();
     private SudokuSet boxInput;
@@ -60,8 +61,13 @@ final class CurrentReasoningMenu extends JPopupMenu {
         selectedChain = UserChainAssembly.assemble(chainInputs).chain;
         selectionInput = panel.getSelectedCellsForTechniqueMatching();
         coloredCells=panel.currentReasoningColoredCells();coloredCandidates=panel.currentReasoningColoredCandidates();
+        boolean multipleDigits = false;
+        int selectedDigits = 0;
+        for (int value = 1; value <= 9; value++) if (panel.getShowHintCellValues()[value]) selectedDigits++;
+        multipleDigits = selectedDigits > 1;
         if(quick) {
             if(!chainInputs.isEmpty() || !boxInput.isEmpty() || !coloredCells.isEmpty() || !coloredCandidates.isEmpty())listFilter=8;
+            else if(multipleDigits)listFilter=7;
             else if(digit>0)listFilter=2;
             else if(panel.isBivalueFilterActive())listFilter=3;
             else listFilter=selectionInput.isEmpty()?7:6;
@@ -76,10 +82,11 @@ final class CurrentReasoningMenu extends JPopupMenu {
     }
     private void scan() {
         if (closed) return;
+        putClientProperty("emptyTechniqueResults", Boolean.FALSE);
         final int request = ++generation;
         if (worker != null) worker.interrupt();
         captureInputs();
-        masks.clear(); verified.clear(); selector = null; results.removeAll();
+        masks.clear(); verified.clear(); exactChainSteps.clear(); selector = null; results.removeAll();
         JLabel pending = new JLabel(text("searching"), SwingConstants.CENTER);
         pending.setPreferredSize(new Dimension(610, 56));
         results.add(pending); results.add(modeHeader(), BorderLayout.NORTH); frame.refreshTechniquePopupLayout(this);
@@ -88,48 +95,79 @@ final class CurrentReasoningMenu extends JPopupMenu {
         final Set<Integer> markedCells=new TreeSet<Integer>(coloredCells),markedCandidates=new TreeSet<Integer>(coloredCandidates);
         final Sudoku2 snapshot = panel.getSudoku().clone();
         final UserChain chain = selectedChain;
+        final boolean quickAnnotations = quick && filter == 8;
+        final boolean hasChainInput = !chainInputs.isEmpty();
+        final String authoredPath = quickAnnotations
+                ? NativeReasoningMatcher.authoredCompletePath(chain, snapshot) : null;
         final Set<Integer> cells = new TreeSet<Integer>(), nodes = new TreeSet<Integer>();
         final Set<Integer> selectedCells = new TreeSet<Integer>(selectionInput);
         for (int i = 0; i < boxInput.size(); i++) cells.add(boxInput.get(i));
-        for (UserChain input : chainInputs) for (UserChainNode n : input.getNodes()) for(int cell:n.cells())nodes.add(cell * 10 + n.getCandidate());
+        for (UserChain input : chainInputs) for (UserChainNode n : input.getNodes()) for(int atom:n.atoms())nodes.add(atom);
         worker = new Thread(() -> {
             List<SolutionStep> found = new ArrayList<SolutionStep>();
             Map<SolutionStep, Integer> related = new IdentityHashMap<SolutionStep, Integer>();
             Set<SolutionStep> proved = Collections.newSetFromMap(new IdentityHashMap<SolutionStep, Boolean>());
+            Set<SolutionStep> exact = Collections.newSetFromMap(new IdentityHashMap<SolutionStep, Boolean>());
             UserChainValidator.Result validation = null; Throwable failure = null; int unsupported = 0;
             try {
                 if (chain != null) {
                     validation = UserChainValidator.validate(snapshot, chain);
-                    for (SolutionStep step : validation.steps) { if(filter!=8&&!acceptContext(step,snapshot,cells,nodes,selectedCells,selectedDigit,filter))continue; found.add(step); related.put(step, relationMask(step, snapshot, cells, nodes, selectedCells, selectedDigit) | 2); proved.add(step); }
+                    if (!quickAnnotations) for (SolutionStep step : validation.steps) {
+                        if(filter!=8&&!acceptContext(step,snapshot,cells,nodes,selectedCells,selectedDigit,filter))continue;
+                        found.add(step); related.put(step, relationMask(step, snapshot, cells, nodes, selectedCells, selectedDigit) | 2); proved.add(step);
+                    }
                 }
                 for (SolutionStep step : (filter == 8
                         ? frame.getTechniqueStepCatalog().findMatchingSteps(snapshot,
-                            step -> acceptAnnotations(step,snapshot,cells,nodes,markedCells,markedCandidates))
+                            step -> quickAnnotations
+                                    ? quickSourceMask(step,snapshot,cells,markedCells,markedCandidates,selectedDigit,authoredPath)!=0
+                                    : acceptAnnotations(step,snapshot,cells,nodes,markedCells,markedCandidates))
                         : filter == 1 ? frame.getTechniqueStepCatalog().findBoxSteps(snapshot, cells)
                         : frame.getTechniqueStepCatalog().findAllRawSteps(snapshot, null))) {
                     if (Thread.currentThread().isInterrupted()) return;
-                    if (!SudokuPanel.isNativeConclusionExecutable(step, snapshot) || !(filter==8?acceptAnnotations(step,snapshot,cells,nodes,markedCells,markedCandidates):acceptContext(step,snapshot,cells,nodes,selectedCells,selectedDigit,filter))) continue;
+                    int quickMask = quickAnnotations
+                            ? quickSourceMask(step,snapshot,cells,markedCells,markedCandidates,selectedDigit,authoredPath) : 0;
+                    if (!SudokuPanel.isNativeConclusionExecutable(step, snapshot) || !(filter==8
+                            ? quickAnnotations ? quickMask!=0 : acceptAnnotations(step,snapshot,cells,nodes,markedCells,markedCandidates)
+                            : acceptContext(step,snapshot,cells,nodes,selectedCells,selectedDigit,filter))) continue;
                     ReasoningStepIndex index = ReasoningStepIndex.from(step, snapshot);
-                    int mask = relationMask(step, snapshot, cells, nodes, selectedCells, selectedDigit);
-                    if(!Collections.disjoint(index.premiseCells,markedCells)||!Collections.disjoint(index.conclusionCells,markedCells)||!Collections.disjoint(index.premiseNodes,markedCandidates)||!Collections.disjoint(index.conclusionNodes,markedCandidates))mask|=16;
+                    int mask = quickAnnotations ? quickMask : relationMask(step, snapshot, cells, nodes, selectedCells, selectedDigit);
+                    if (!quickAnnotations && (!Collections.disjoint(index.premiseCells,markedCells)
+                            || !Collections.disjoint(index.conclusionCells,markedCells)
+                            || !Collections.disjoint(index.premiseNodes,markedCandidates)
+                            || !Collections.disjoint(index.conclusionNodes,markedCandidates))) mask|=16;
                     if (!index.supported) unsupported++;
+                    if ((mask & 2) != 0 && quickAnnotations) exact.add(step);
                     found.add(step); related.put(step, mask);
                 }
             } catch (Throwable error) { failure = error; }
             if (Thread.currentThread().isInterrupted()) return;
-            final Throwable error = failure; final int missing = unsupported; 
+            final Throwable error = failure; final int missing = unsupported;
+            final UserChainValidator.Result chainValidation = validation;
             SwingUtilities.invokeLater(() -> {
                 if (closed || request != generation || !identity.equals(panel.currentReasoningInputIdentity())) return;
                 results.removeAll();
                 if (error != null) { results.add(modeHeader(), BorderLayout.NORTH); results.add(new JLabel(text("failed"))); frame.refreshTechniquePopupLayout(this); return; }
-                masks.putAll(related); verified.addAll(proved);
-                found.sort(Comparator.comparingInt((SolutionStep s) -> s.getType().getStepConfig().getIndex()));
+                masks.putAll(related); verified.addAll(proved); exactChainSteps.addAll(exact);
+                found.sort(Comparator.comparingInt((SolutionStep s) -> quick && exact.contains(s) ? 0 : 1)
+                        .thenComparingInt(s -> s.getType().getStepConfig().getIndex()));
                 Map<SolutionType, List<SolutionStep>> grouped = new LinkedHashMap<SolutionType, List<SolutionStep>>();
                 for (SolutionStep step : found) grouped.computeIfAbsent(step.getType(), k -> new ArrayList<SolutionStep>()).add(step);
                 if (found.isEmpty()) {
+                    putClientProperty("emptyTechniqueResults", Boolean.TRUE);
                     if(quick)OperationSoundPlayer.play(OperationSoundPlayer.Sound.NO_RESULTS);
                     JLabel empty = new JLabel(text(quick?"quick.noResults":"empty")); empty.setBorder(BorderFactory.createEmptyBorder(12, 8, 12, 8)); results.add(empty); results.add(modeHeader(), BorderLayout.NORTH);
                 } else { selector = frame.createCurrentReasoningSelector(this, grouped); results.add(selector); }
+                if (quickAnnotations && hasChainInput) {
+                    String status = chain == null ? text("quick.chainIncomplete")
+                            : authoredPath == null ? text("quick.chainUnavailable")
+                            : !exact.isEmpty() ? MessageFormat.format(text("quick.chainExact"), exact.size())
+                            : chainValidation != null && chainValidation.status == UserChainValidator.Status.PROVEN
+                                    ? text("quick.authoredOnly") : text("quick.chainNoNative");
+                    JLabel sourceStatus = new JLabel(status);
+                    sourceStatus.setBorder(BorderFactory.createEmptyBorder(5, 8, 5, 8));
+                    results.add(sourceStatus, BorderLayout.SOUTH);
+                }
                 if (selector != null) selector.setToolTipText(MessageFormat.format(text("menuCount"), found.size())
                         + (missing > 0 ? " " + text("partial") : ""));
                 results.invalidate();body.invalidate();
@@ -145,7 +183,7 @@ final class CurrentReasoningMenu extends JPopupMenu {
         legend.setName("reasoningLegend");
         String[] names = {"box", "chain", "digit", "selection", "coloring"};
         for (int i : new int[]{0, 1, 4, 3, 2}) {
-            JLabel label = new JLabel(text(names[i]), badgeIcon(1 << i), SwingConstants.LEADING);
+            JLabel label = new JLabel(text(i == 1 && quick ? "chainExact" : names[i]), badgeIcon(1 << i), SwingConstants.LEADING);
             legend.add(label);
         }
         header.add(legend, BorderLayout.SOUTH);
@@ -182,6 +220,21 @@ final class CurrentReasoningMenu extends JPopupMenu {
         return !boxes.isEmpty()&&cells.containsAll(boxes)
                 || !chain.isEmpty()&&nodes.containsAll(chain)
                 || (!coloredCells.isEmpty()||!coloredCandidates.isEmpty())&&cells.containsAll(coloredCells)&&nodes.containsAll(coloredCandidates);
+    }
+
+    private static int quickSourceMask(SolutionStep step, Sudoku2 board, Set<Integer> boxes,
+            Set<Integer> coloredCells, Set<Integer> coloredCandidates, int digit, String authoredPath) {
+        int mask = NativeReasoningMatcher.matchesCompletePath(authoredPath, step) ? 2 : 0;
+        ReasoningStepIndex index = ReasoningStepIndex.from(step, board);
+        if (index.supported) {
+            Set<Integer> cells = new HashSet<Integer>(index.premiseCells); cells.addAll(index.conclusionCells);
+            Set<Integer> nodes = new HashSet<Integer>(index.premiseNodes); nodes.addAll(index.conclusionNodes);
+            if (!boxes.isEmpty() && cells.containsAll(boxes)) mask |= 1;
+            if ((!coloredCells.isEmpty() || !coloredCandidates.isEmpty())
+                    && cells.containsAll(coloredCells) && nodes.containsAll(coloredCandidates)) mask |= 16;
+        }
+        if (digit > 0 && acceptFilter(step, board, boxes, digit, 2)) mask |= 4;
+        return mask;
     }
 
     static boolean acceptContext(SolutionStep step,Sudoku2 board,Set<Integer> boxes,Set<Integer> chain,Set<Integer> selection,int digit,int filter) {
@@ -240,7 +293,8 @@ final class CurrentReasoningMenu extends JPopupMenu {
     }
 
     int relatedMask(SolutionStep step) { Integer mask = masks.get(step); return mask == null ? 0 : mask; }
-    int priority(SolutionStep step) { return verified.contains(step) ? -1 : 0; }
+    int priority(SolutionStep step) { return verified.contains(step) ? -2 : exactChainSteps.contains(step) ? -1 : 0; }
+    boolean isExactChainStep(SolutionStep step) { return exactChainSteps.contains(step); }
     String badges(int mask) {
         StringBuilder out = new StringBuilder("<font size='-1'>");
         for (int i = 0; i < 5; i++) if ((mask & 1 << i) != 0) {
@@ -252,7 +306,7 @@ final class CurrentReasoningMenu extends JPopupMenu {
     String relatedDescription(int mask) {
         List<String> names = new ArrayList<String>();
         if ((mask & 1) != 0) names.add(text("box"));
-        if ((mask & 2) != 0) names.add(text("chain"));
+        if ((mask & 2) != 0) names.add(text(quick ? "chainExact" : "chain"));
         if ((mask & 4) != 0) names.add(text("digit") + " " + digit);
         if ((mask & 8) != 0) names.add(text("selection"));
         if ((mask & 16) != 0) names.add(text("coloring"));
@@ -265,7 +319,7 @@ final class CurrentReasoningMenu extends JPopupMenu {
     void confirm(SolutionStep step, int instance, int count) {
         if (closed || identity == null || !identity.equals(panel.currentReasoningInputIdentity()) || !masks.containsKey(step)) return;
         SudokuSet boxes = step.getType().isBasicFish() && !boxInput.isEmpty() ? boxInput.clone() : null;
-        UserChain chain = verified.contains(step) ? selectedChain : null;
+        UserChain chain = verified.contains(step) || exactChainSteps.contains(step) ? selectedChain : null;
         boolean proof = verified.contains(step);
         dispose(); frame.selectCurrentReasoning(step, boxes, chain, proof, instance, count);
     }

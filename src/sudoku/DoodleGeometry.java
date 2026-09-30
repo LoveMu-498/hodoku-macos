@@ -19,9 +19,16 @@ final class DoodleGeometry {
             java.util.function.Function<DoodleStroke, java.awt.geom.AffineTransform> projection) {
         List<double[]> edges = edges(eraser);
         List<DoodleStroke> result = new ArrayList<DoodleStroke>();
+        java.awt.geom.Rectangle2D eraserBounds = eraser.getBounds2D();
         for (DoodleStroke stroke : strokes) {
             java.awt.geom.AffineTransform transform = projection.apply(stroke);
             if (transform == null) { result.add(stroke.copy()); continue; }
+            // Most pointer samples miss most strokes. Reject their bounds before
+            // allocating intersections and fragments for every segment.
+            if (!projectedBounds(stroke, transform).intersects(eraserBounds)) {
+                result.add(stroke.copy());
+                continue;
+            }
             java.awt.geom.AffineTransform inverse;
             try { inverse = transform.createInverse(); }
             catch (java.awt.geom.NoninvertibleTransformException ex) { throw new IllegalArgumentException(ex); }
@@ -30,6 +37,8 @@ final class DoodleGeometry {
             DoodleStroke fragment = null;
             List<DoodlePoint> points = stroke.getPoints();
             for (int i = 1; i < points.size(); i++) {
+                // A standard cross stores two independent strokes in four points.
+                if (stroke.getCandidateMarkKind() == DoodleStroke.MARK_FALSE_CROSS && i == 2) continue;
                 DoodlePoint a = points.get(i - 1), b = points.get(i);
                 Point2D pa = transform.transform(new Point2D.Double(a.getX(),a.getY()),null);
                 Point2D pb = transform.transform(new Point2D.Double(b.getX(),b.getY()),null);
@@ -68,7 +77,16 @@ final class DoodleGeometry {
                     fragment.getPoints().add(new DoodlePoint(end.getX(),end.getY()));
                 }
             }
-            if (stroke.isCandidateAnchored()) {
+            if (stroke.isStandardCandidateMark()) {
+                if (cutStroke) {
+                    // A structured candidate mark is atomic; never turn a partial
+                    // erasure into a freehand fragment that retains no meaning.
+                    result.subList(fragmentStart,result.size()).clear();
+                } else {
+                    result.subList(fragmentStart,result.size()).clear();
+                    result.add(stroke.copy());
+                }
+            } else if (stroke.isCandidateAnchored()) {
                 if (!cutStroke) {
                     result.subList(fragmentStart,result.size()).clear();
                     result.add(stroke.copy());
@@ -87,6 +105,21 @@ final class DoodleGeometry {
             }
         }
         return result;
+    }
+
+    private static java.awt.geom.Rectangle2D projectedBounds(DoodleStroke stroke,
+            java.awt.geom.AffineTransform transform) {
+        double minX=Double.POSITIVE_INFINITY,minY=minX,maxX=Double.NEGATIVE_INFINITY,maxY=maxX;
+        for(DoodlePoint point:stroke.getPoints()) {
+            minX=Math.min(minX,point.getX());minY=Math.min(minY,point.getY());
+            maxX=Math.max(maxX,point.getX());maxY=Math.max(maxY,point.getY());
+        }
+        if(stroke.getPoints().isEmpty())return new java.awt.geom.Rectangle2D.Double();
+        java.awt.geom.Rectangle2D bounds=transform.createTransformedShape(
+                new java.awt.geom.Rectangle2D.Double(minX,minY,maxX-minX,maxY-minY)).getBounds2D();
+        // Horizontal/vertical paths have zero-area bounds but are still erasable.
+        return new java.awt.geom.Rectangle2D.Double(bounds.getX()-1e-7,bounds.getY()-1e-7,
+                bounds.getWidth()+2e-7,bounds.getHeight()+2e-7);
     }
 
     private static List<double[]> edges(Shape shape) {

@@ -24,8 +24,12 @@ public final class AnchoredDoodleProbe {
    UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
    f=new MainFrame(null);f.setSize(1100,850);f.setVisible(true);SudokuPanel p=f.getSudokuPanel();p.setSudoku((String)null);p.setShowCandidates(true);p.setAnnotationTool(AnnotationTool.DOODLE);p.getCellZoomPanel().setPrimaryColor(Color.MAGENTA); // palette may snap; use distinct recorded color below
    paint(p);Point2D c=center(p,2,3);click(p,new Point((int)c.getX(),(int)c.getY()));
-   check(strokes(p).size()==1,"right click did not create a circle");DoodleStroke circle=strokes(p).get(0);circle.setColor(Color.MAGENTA);
+   check(strokes(p).size()==1,"right click did not create a circle");DoodleStroke circle=strokes(p).get(0);circle.setColor(Color.MAGENTA);int circleGroup=circle.getThoughtGroup();check(circleGroup>=0&&circleGroup<6,"circle missed its selected thought group");
    check(circle.getAnchorCell()==2&&circle.getAnchorDigit()==3,"candidate identity missing");
+   DoodleStroke cross=new DoodleStroke(Color.CYAN,.03f);cross.setAnchorCell(2);cross.setAnchorDigit(3);cross.setCandidateMarkKind(DoodleStroke.MARK_FALSE_CROSS);cross.setThoughtGroup(circleGroup);
+   for(double[] point:new double[][]{{-.12,-.12},{.12,.12},{.12,-.12},{-.12,.12}})cross.getPoints().add(new DoodlePoint(point[0],point[1]));
+   Point2D crossCenter=transform(p,cross).transform(new Point2D.Double(),null);Rectangle2D crossCut=new Rectangle2D.Double(crossCenter.getX()-3,crossCenter.getY()-3,6,6);
+   check(DoodleGeometry.subtract(java.util.Collections.singletonList(cross),crossCut,p.getWidth(),p.getHeight(),s->{try{return transform(p,s);}catch(Exception e){throw new RuntimeException(e);}}).isEmpty(),"partial eraser left a fragment of a standard cross");
    DoodleStroke free=new DoodleStroke(Color.BLUE,.005f);free.getPoints().add(new DoodlePoint(.03,.04));free.getPoints().add(new DoodlePoint(.04,.05));strokes(p).add(free);
    for(int w:new int[]{760,940,1300,1650,1000,780,1420,900}){
     f.setSize(w,850+(w%3)*70);f.validate();BufferedImage im=paint(p);c=center(p,2,3);
@@ -40,29 +44,27 @@ public final class AnchoredDoodleProbe {
    check(center(p,2,3).distance(transform(p,circle).transform(new Point2D.Double(),null))<.01,"sidebar moved anchor");
    List<DoodleStroke> untouched=DoodleGeometry.subtract(strokes(p),new Rectangle(0,0,1,1),p.getWidth(),p.getHeight(),s0->{try{return transform(p,s0);}catch(Exception e){throw new RuntimeException(e);}});
    check(untouched.get(0).isCandidateAnchored(),"missed eraser detached circle");
-   // Erasing a part detaches only the affected circle into ordinary ink.
+   // A standard candidate mark is deleted as a whole when the eraser touches it.
    c=center(p,2,3);Rectangle2D cut=new Rectangle2D.Double(c.getX()-100,c.getY()-100,100,200);
    List<DoodleStroke> fragments=DoodleGeometry.subtract(strokes(p),cut,p.getWidth(),p.getHeight(),s->{try{return transform(p,s);}catch(Exception e){throw new RuntimeException(e);}});
-   check(!fragments.isEmpty()&&!fragments.get(0).isCandidateAnchored(),"partial erasure retained tracking");
-   DoodleStroke arc=fragments.get(0);check(arc.getPoints().size()<circle.getPoints().size(),"eraser did not cut circle");
-   for(DoodlePoint q:arc.getPoints())check(q.getX()*p.getWidth()>=c.getX()-1e-6,"wrong side survived");
+   check(fragments.size()==1&&!fragments.get(0).isCandidateAnchored(),"partial erasure retained a candidate mark");
    call(p,"pushDoodleUndo",new Class[]{});strokes(p).clear();strokes(p).addAll(fragments);
    p.undoCurrentAnnotation();check(strokes(p).get(0).getPoints().size()==49&&strokes(p).get(0).isCandidateAnchored(),"undo lost bound circle");
    p.redoCurrentAnnotation();check(!strokes(p).get(0).isCandidateAnchored(),"redo retained tracking");
-   f.setSize(1600,700);f.validate();paint(p);check(transform(p,arc).getScaleX()==p.getWidth(),"fragment not freehand after resize");
+   f.setSize(1600,700);f.validate();paint(p);check(transform(p,fragments.get(0)).getScaleX()==p.getWidth(),"free stroke changed scaling after mark deletion");
    p.getSudoku().delCandidate(2,3);check(transform(p,circle)==null,"removed candidate still circled");p.getSudoku().setCandidate(2,3,true);check(transform(p,circle)!=null,"restored candidate missing circle");
    p.undoCurrentAnnotation();
    GuiState state=new GuiState();state.setIncludeAnnotations(true);p.getState(state,true);
    ByteArrayOutputStream bytes=new ByteArrayOutputStream();try(XMLEncoder encoder=new XMLEncoder(bytes)){encoder.setExceptionListener(e->{throw new AssertionError(e);});encoder.writeObject(state);}
    GuiState restored;try(XMLDecoder decoder=new XMLDecoder(new ByteArrayInputStream(bytes.toByteArray()))){restored=(GuiState)decoder.readObject();}
-   check(restored.getDoodleStrokes().get(0).isCandidateAnchored(),"saved state dropped anchor");
+   check(restored.getDoodleStrokes().get(0).isCandidateAnchored()&&restored.getDoodleStrokes().get(0).getCandidateMarkKind()==DoodleStroke.MARK_TRUE_CIRCLE&&restored.getDoodleStrokes().get(0).getThoughtGroup()==circleGroup,"saved state dropped circle semantics");
    check(!restored.getDoodleStrokes().get(restored.getDoodleStrokes().size()-1).isCandidateAnchored(),"legacy free stroke rebound");
    check(!restored.getDoodleRedoHistory().get(0).get(0).isCandidateAnchored(),"saved history changed detached arc");
    SessionSnapshot snapshot=new SessionSnapshot();snapshot.setGuiState(restored);snapshot.setActiveRow(0);snapshot.setActiveCol(2);
    SessionStore store=new SessionStore(new File(System.getProperty("hodoku.probe.output"),"session.xml"));store.save(snapshot);
    p.setState(store.load().getGuiState());f.setSize(1250,900);f.validate();paint(p);
    check(strokes(p).get(0).isCandidateAnchored()&&center(p,2,3).distance(transform(p,strokes(p).get(0)).transform(new Point2D.Double(),null))<.01,"reopened circle drifted");
-   System.out.println("PASS: real right-click candidate identity, eight window sizes with rendered pixel alignment, free stroke scaling, sidebar, partial eraser detachment/undo/redo, disappearance/reappearance, state+history XML and SessionStore reopen");
+   System.out.println("PASS: real right-click candidate identity, eight window sizes with rendered pixel alignment, free stroke scaling, sidebar, atomic candidate-mark erasure/undo/redo, disappearance/reappearance, mark semantics+history XML and SessionStore reopen");
   }catch(Throwable t){failure[0]=t;}finally{if(f!=null)f.dispose();}});
   if(failure[0]!=null){failure[0].printStackTrace();System.exit(1);}System.exit(0);
  }

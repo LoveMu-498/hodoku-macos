@@ -24,17 +24,17 @@ public final class AnnotationTimelineProbe {
    p.setSudoku((String)null);p.getSudoku().set(ChainAdvisoryProbe.board(true));p.setAnnotationTool(AnnotationTool.FREE_CHAIN);ChainEditingProbe.install(ChainAdvisoryProbe.ring());p.selectReasoningHint(new SolutionStep(SolutionType.HIDDEN_RECTANGLE),null,null,false);call("handleReasoningEnter");return null;
   });await(true);
   edt(()->{Object proposal=read("reasoningProposal");SolutionStep displayed=p.getStep();
-   // Editing the displayed proof's source must not cancel its frozen transaction.
+   // A chain premise edit revokes its preview; unrelated ink remains.
    Method flip=SudokuPanel.class.getDeclaredMethod("flipChainEdges",Map.class);flip.setAccessible(true);UserChain source=ChainEditingProbe.done().get(0);Map<UserChain,Set<Integer>> targets=new IdentityHashMap<>();targets.put(source,Collections.singleton(0));flip.invoke(p,targets);
-   require(read("reasoningProposal")==proposal && p.getStep()==displayed,"source edit canceled displayed proof");ink().add(line(350,Color.BLUE));paint("frozen-research");call("handleReasoningEnter");return null;
+   require(read("reasoningProposal")==null && p.getStep()==null,"source edit retained stale proof");ink().add(line(350,Color.BLUE));paint("edited-research");return null;
   });await(false);
-  edt(()->{require(p.getSudoku().getValue(0)==1,"frozen original conclusion not applied");require(!ChainEditingProbe.done().isEmpty(),"later chain edits consumed");require(!ink().isEmpty(),"research ink consumed");return null;});
+  edt(()->{require(p.getSudoku().getValue(0)==0,"source edit applied old conclusion");require(!ChainEditingProbe.done().isEmpty(),"later chain edits consumed");require(!ink().isEmpty(),"research ink consumed");return null;});
   edt(()->{
    String[] candidates=SwordfishBoxReasoningProbe.CANDIDATES.split(" ");StringBuilder values=new StringBuilder();for(String c:candidates)values.append(c.length()==1?c:"0");p.setSudoku(values.toString());for(int c=0;c<81;c++)if(candidates[c].length()>1)for(int d=1;d<=9;d++)if(!candidates[c].contains(""+d))p.getSudoku().delCandidate(c,d);
    p.setAnnotationTool(AnnotationTool.BOX_SELECTION);SwordfishBoxReasoningProbe.boxes();p.selectReasoningHint(new SolutionStep(SolutionType.HIDDEN_RECTANGLE),null,null,false);call("handleReasoningEnter");return null;
   });await(true);
   edt(()->{Object proof=read("reasoningProposal");java.util.List<SudokuSet> boxes=(java.util.List<SudokuSet>)read("boxReasoningGroups");boxes.get(0).add(26);Field revision=SudokuPanel.class.getDeclaredField("boxReasoningRevision");revision.setAccessible(true);revision.setLong(p,revision.getLong(p)+1);call("noteBoxReasoningChanged");require(proof==read("reasoningProposal"),"new box canceled proof");call("handleReasoningEnter");return null;});await(false);
   edt(()->{for(int c:new int[]{18,26,36,41,54,62})require(!p.getSudoku().isCandidate(c,2),"frozen box proof not applied");require(p.getBoxReasoningFootprint().contains(26),"later box consumed");return null;});
-  System.out.println("Timeline fade/no compounding, same/new proof, cancellation restore, frozen edited-source apply, research retention, Control-right and ended Backspace passed");
+  System.out.println("Timeline fade/no compounding, same/new proof, cancellation restore, edited-chain cancellation, research retention, Control-right and ended Backspace passed");
  }catch(Throwable t){t.printStackTrace();System.exit(1);}finally{if(f!=null)edt(()->{f.dispose();return null;});}System.exit(0);}
 }

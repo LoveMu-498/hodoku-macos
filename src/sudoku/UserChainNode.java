@@ -13,6 +13,7 @@ public class UserChainNode {
 	private int candidate;
 	private Color color;
 	private int[] groupCells;
+    private int[] memberCandidates;
 
 	public UserChainNode() {
 	}
@@ -30,36 +31,43 @@ public class UserChainNode {
     /** Null in old JavaBean sessions: the legacy cellIndex remains a single node. */
     public int[] getGroupCells() { return groupCells == null ? null : groupCells.clone(); }
     public void setGroupCells(int[] value) { groupCells = value == null ? null : value.clone(); }
-    public int[] cells() {
-        int[] result = groupCells == null ? new int[] {cellIndex} : groupCells.clone();
-        java.util.Arrays.sort(result); return result;
+    /** Full candidate atoms, cell * 10 + digit. Null preserves legacy bean sessions. */
+    public int[] getMemberCandidates() { return memberCandidates == null ? null : memberCandidates.clone(); }
+    public void setMemberCandidates(int[] value) { memberCandidates=value==null?null:value.clone(); }
+    public int[] atoms() {
+        int[] result;
+        if(memberCandidates!=null) result=memberCandidates.clone();
+        else { int[] c=groupCells==null?new int[]{cellIndex}:groupCells;result=new int[c.length];
+            for(int i=0;i<c.length;i++)result[i]=c[i]*10+candidate; }
+        java.util.Arrays.sort(result);return result;
     }
-    public boolean grouped() { return cells().length > 1; }
-    public boolean contains(int cell, int digit) {
-        if (candidate != digit) return false;
-        for (int c : cells()) if (c == cell) return true;
-        return false;
+    public static UserChainNode fromAtoms(int[] atoms, Color color) {
+        if(atoms.length==0)throw new IllegalArgumentException("Empty candidate group");
+        int[] sorted=atoms.clone();java.util.Arrays.sort(sorted);
+        UserChainNode node=new UserChainNode(sorted[0]/10,sorted[0]%10,color);
+        node.setMemberCandidates(sorted);return node;
     }
+    /** Position projection only; use atoms() whenever candidate identity matters. */
+    public int[] cells() { return java.util.Arrays.stream(atoms()).map(a->a/10).distinct().toArray(); }
+    public boolean grouped() { return atoms().length > 1; }
+    public boolean contains(int cell, int digit) { return java.util.Arrays.binarySearch(atoms(),cell*10+digit)>=0; }
+    public int sameDigit() { int[] a=atoms();if(a.length==0)return 0;int d=a[0]%10;for(int x:a)if(x%10!=d)return 0;return d; }
     public boolean validShape() {
-        int[] c = cells();
-        if (candidate < 1 || candidate > 9 || c.length < 1 || c.length > 3) return false;
-        boolean row = true, col = true, box = true;
-        for (int i=0;i<c.length;i++) {
-            if (c[i]<0 || c[i]>=81 || (i>0 && c[i]==c[i-1])) return false;
-            box &= Sudoku2.getBlock(c[i])==Sudoku2.getBlock(c[0]);
-            row &= Sudoku2.getRow(c[i])==Sudoku2.getRow(c[0]);
-            col &= Sudoku2.getCol(c[i])==Sudoku2.getCol(c[0]);
-        }
-        return row || col || box;
+        int[] a=atoms();if(a.length==0 || a.length>729)return false;
+        for(int i=0;i<a.length;i++)if(a[i]<1||a[i]/10>80||a[i]%10<1||a[i]%10>9||(i>0&&a[i]==a[i-1]))return false;
+        return true;
     }
+    public boolean nativeEncodable() {return validShape() && sameDigit()!=0 && atoms().length<=3;}
     public int encoded(boolean strong) {
-        int[] c=cells();
-        return c.length==1 ? Chain.makeSEntry(c[0],candidate,strong)
-            : Chain.makeSEntry(c[0],c[1],c.length==3?c[2]:-1,candidate,strong,Chain.GROUP_NODE);
+        if(!nativeEncodable())throw new IllegalStateException("Generalized group requires full candidate representation");
+        int[] c=cells();int d=sameDigit();
+        return c.length==1?Chain.makeSEntry(c[0],d,strong):Chain.makeSEntry(c[0],c[1],c.length==3?c[2]:-1,d,strong,Chain.GROUP_NODE);
     }
-    public int identity() { return grouped() ? encoded(false) : cellIndex*10+candidate; }
+    public String key() { return java.util.Arrays.toString(atoms()); }
+    /** Legacy native identity, never a generalized group key. */
+    public int identity() { return grouped()?encoded(false):atoms()[0]; }
     public UserChainNode copy() {
-        UserChainNode n=new UserChainNode(cellIndex,candidate,color);n.setGroupCells(groupCells);return n;
+        UserChainNode n=new UserChainNode(cellIndex,candidate,color);n.setGroupCells(groupCells);n.setMemberCandidates(memberCandidates);return n;
     }
 
 	public int getCellIndex() { return cellIndex; }

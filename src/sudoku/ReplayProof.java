@@ -6,7 +6,7 @@ import solver.RestrictedCommon;
 
 /** Versioned data-only proof snapshot. No native mutable object escapes its byte boundary. */
 public final class ReplayProof {
-    private static final int MAGIC=0x48525046, VERSION=1, LIMIT=16384;
+    private static final int MAGIC=0x48525046, VERSION=2, LIMIT=16384;
     private ReplayProof() {}
     public static byte[] encode(SolutionStep s) {
         try { ByteArrayOutputStream b=new ByteArrayOutputStream(); DataOutputStream o=new DataOutputStream(b);
@@ -34,13 +34,20 @@ public final class ReplayProof {
             o.writeInt(s.getRestrictedCommons().size());for(RestrictedCommon r:s.getRestrictedCommons()){o.writeInt(r.getAls1());o.writeInt(r.getAls2());o.writeInt(r.getCand1());o.writeInt(r.getCand2());o.writeInt(r.getActualRC());}
             set(o,s.getPotentialCannibalisticEliminations());
             set(o,s.getPotentialEliminations());
+            o.writeInt(s.getGeneralizedProofs().size());for(UserChainProof p:s.getGeneralizedProofs()){
+                o.writeInt(p.getNodes().size());for(int x=0;x<p.getNodes().size();x++){
+                    int[] atoms=p.getNodes().get(x).atoms();o.writeInt(atoms.length);for(int atom:atoms)o.writeInt(atom);o.writeBoolean(p.getTruths().get(x));
+                }
+            }
+            byte[] diagram=ReplayEvidence.input("FREE_CHAIN",Collections.<SudokuSet>emptyList(),s.getAuthoredChainDiagram());
+            o.writeInt(diagram.length);o.write(diagram);
             o.flush();byte[] result=b.toByteArray();decode(result);return result;
         }catch(IOException e){throw new IllegalArgumentException("Cannot snapshot proof",e);}
     }
     public static SolutionStep decode(byte[] data)throws IOException {
         if(data.length==0)return null;if(data.length>4*1024*1024)throw new IOException("Proof too large");
         try(DataInputStream i=new DataInputStream(new ByteArrayInputStream(data))){
-            if(i.readInt()!=MAGIC||i.readInt()!=VERSION)throw new IOException("Unknown proof format");
+            if(i.readInt()!=MAGIC)throw new IOException("Unknown proof format");int version=i.readInt();if(version<1||version>VERSION)throw new IOException("Unknown proof version");
             SolutionStep s=new SolutionStep(type(i.readUTF()));String sub=i.readUTF();if(!sub.isEmpty())s.setSubType(type(sub));
             s.setEntity(i.readInt());
             s.setEntityNumber(i.readInt());
@@ -71,6 +78,15 @@ public final class ReplayProof {
                 if(kind==Chain.GROUP_NODE&&((Chain.getSCellIndex2(node)<0||Chain.getSCellIndex2(node)>80)||(Chain.getSCellIndex3(node)>80&&Chain.getSCellIndex3(node)!=-1)))throw new IOException("Invalid grouped node");
                 if(Chain.getSNodeType(node)==Chain.ALS_NODE && (Chain.getSAlsIndex(node)<0||Chain.getSAlsIndex(node)>=s.getAlses().size()))throw new IOException("Invalid ALS reference");
             }
+            if(version>=2)for(int n=count(i);n>0;n--){UserChainProof p=new UserChainProof();
+                for(int m=count(i);m>0;m--){int[] atoms=new int[count(i)];for(int x=0;x<atoms.length;x++)atoms[x]=i.readInt();
+                    UserChainNode node=UserChainNode.fromAtoms(atoms,null);if(!node.validShape())throw new IOException("Invalid generalized proof node");
+                    p.getNodes().add(node);p.getTruths().add(i.readBoolean());
+                }
+                if(p.getNodes().isEmpty())throw new IOException("Empty proof path");s.getGeneralizedProofs().add(p);
+            }
+            if(version>=2){int size=i.readInt();if(size<0||size>4*1024*1024)throw new IOException("Invalid chain diagram size");
+                byte[] diagram=new byte[size];i.readFully(diagram);s.setAuthoredChainDiagram(ReplayEvidence.decode(diagram).chains());}
             if(i.read()!=-1)throw new IOException("Trailing proof data");return s;
         }catch(IllegalArgumentException|IndexOutOfBoundsException e){throw new IOException("Invalid proof",e);}
     }

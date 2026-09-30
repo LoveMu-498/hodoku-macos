@@ -20,7 +20,7 @@ public final class DoodleWheelProbe {
    wheel(p,InputEvent.META_DOWN_MASK,2000);check(p.getDoodleWidthIndex()==1 && z.getPaletteGroup()==1,"command width");
    wheel(p,InputEvent.META_DOWN_MASK,2010);check(p.getDoodleWidthIndex()==1,"width overshoot");
    wheel(p,InputEvent.META_DOWN_MASK,2400);check(p.getDoodleWidthIndex()==2,"width rearm");
-   p.setAnnotationTool(AnnotationTool.DEFAULT_MOUSE);check(!button.isEnabled(),"inactive click");
+   p.setAnnotationTool(AnnotationTool.CANDIDATE_COLORING);check(!button.isEnabled(),"inactive click");
   }catch(Throwable t){failure[0]=t;}finally{if(f!=null)f.dispose();}});
   if(failure[0]!=null){failure[0].printStackTrace();System.exit(1);}
   System.out.println("PASS: fractional threshold, momentum latch, pause, four click levels, default palette, Command width, inactive mode");System.exit(0);

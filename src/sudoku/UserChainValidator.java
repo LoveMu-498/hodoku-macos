@@ -28,15 +28,17 @@ final class UserChainValidator {
         int edges = n - (chain.isClosed() ? 0 : 1);
         if (chain.getStrongRelations().size() != edges) return new Result(Status.INVALID, -1, steps, Problem.RELATION_COUNT);
         Set<Integer> seen = new HashSet<Integer>();
+        Set<String> nodeKeys=new HashSet<>();
         UserChainNode[] nodes = chain.getNodes().toArray(new UserChainNode[n]);
         for (int i = 0; i < n; i++) {
             UserChainNode node = nodes[i];
             if (!node.validShape()) return new Result(Status.INVALID, -1, steps, Problem.INVALID_GROUP);
-            for (int cell : node.cells()) {
-                int digit=node.getCandidate();
+            if(!nodeKeys.add(node.key()))return new Result(Status.INVALID,-1,steps,Problem.DUPLICATE_NODE);
+            for (int atom : node.atoms()) {
+                int cell=atom/10,digit=atom%10;
                 if(board.getValue(cell)!=0 || !board.isCandidate(cell,digit))
                     return new Result(Status.INVALID,-1,steps,Problem.MISSING_CANDIDATE);
-                if(!seen.add(cell*10+digit)) return new Result(Status.INVALID,-1,steps,Problem.DUPLICATE_NODE);
+                seen.add(atom);
             }
         }
         Result invalid = null;
@@ -45,9 +47,9 @@ final class UserChainValidator {
             Boolean strong=chain.getStrongRelations().get(i);
             UserChainNode a=nodes[i],b=nodes[(i+1)%n];
             boolean valid=strong!=null && (strong ? ordinaryStrong(board,a,b) : weak(a,b));
-            if(Boolean.TRUE.equals(strong) && !valid && a.getCandidate()!=b.getCandidate()) {
+            if(Boolean.TRUE.equals(strong) && !valid && a.sameDigit()>0 && b.sameDigit()>0 && a.sameDigit()!=b.sameDigit()) {
                 solver.Als als=NativeAlsStrongLinks.forBoard(board).find(a,b);
-                if(als!=null){valid=true;alsPremises.put(encodedRelation(a.encoded(false),b.encoded(false)),als);}
+                if(als!=null){valid=true;alsPremises.put(relationKey(a,b,true),als);}
             }
             if(!valid) {
                 if(invalid==null) invalid=new Result(Status.INVALID,i,steps,
@@ -62,24 +64,25 @@ final class UserChainValidator {
             if (board.getValue(cell) != 0 || !board.isCandidate(cell, digit)) continue;
             if (Thread.currentThread().isInterrupted()) return new Result(Status.NO_CONCLUSION, -1, steps);
             int target = cell * 10 + digit;
-            int[] negativeProof = proof(chain, nodes, target, true);
+            UserChainProof negativeProof = proof(chain, nodes, target, true);
             if (negativeProof != null) {
                 deletions.addCandidateToDelete(cell, digit);
-                deletions.addChain(0, negativeProof.length - 1, negativeProof);
+                negativeProof.addTo(deletions);
                 addAlsPremises(deletions,negativeProof,alsPremises);
             }
             if (seen.contains(target)) {
-                int[] positiveProof = proof(chain, nodes, target, false);
+                UserChainProof positiveProof = proof(chain, nodes, target, false);
                 if (positiveProof != null) {
                     SolutionStep placement = new SolutionStep(type);
                     placement.addIndex(cell);placement.addValue(digit);placement.setAuthoredPlacement(true);
-                    placement.addChain(0, positiveProof.length - 1, positiveProof);
+                    positiveProof.addTo(placement);
                     addAlsPremises(placement,positiveProof,alsPremises);
                     if (!placement.getCandidatesToDelete().isEmpty() || !placement.getValues().isEmpty()) steps.add(placement);
                 }
             }
         }
         if (!deletions.getCandidatesToDelete().isEmpty()) steps.add(deletions);
+        for(SolutionStep s:steps)if(!s.getGeneralizedProofs().isEmpty())s.setAuthoredChainDiagram(ChainTextCodec.copy(Collections.singletonList(chain)));
         Result result=new Result(steps.isEmpty() ? (invalid==null?Status.NO_CONCLUSION:Status.INVALID) : (invalid==null?Status.PROVEN:Status.ASSUMED), invalid==null?-1:invalid.invalidEdge, steps,invalid==null?Problem.NONE:invalid.problem);
         if(invalid!=null)result.invalidRelations.addAll(invalid.invalidRelations);
         return result;
@@ -88,7 +91,7 @@ final class UserChainValidator {
         if (!chain.isClosed()) {
             boolean alternating=true,sameDigit=true,grouped=false,xy=true;
             int d=chain.getNodes().get(0).getCandidate();
-            for(UserChainNode node:chain.getNodes()){sameDigit &= node.getCandidate()==d;grouped |= node.grouped();}
+            for(UserChainNode node:chain.getNodes()){sameDigit &= node.sameDigit()==d;grouped |= node.grouped();}
             for(int i=0;i<chain.getStrongRelations().size();i++) {
                 boolean strong=Boolean.TRUE.equals(chain.getStrongRelations().get(i));
                 if(i>0&&strong==Boolean.TRUE.equals(chain.getStrongRelations().get(i-1)))alternating=false;
@@ -130,24 +133,20 @@ final class UserChainValidator {
         return false;
     }
     static String relationKey(UserChainNode a, UserChainNode b, boolean strong) {
-        int x=a.identity(), y=b.identity(); return Math.min(x,y)+":"+Math.max(x,y)+":"+strong;
+        String x=a.key(), y=b.key(); return (x.compareTo(y)<0?x+":"+y:y+":"+x)+":"+strong;
     }
     static boolean weak(UserChainNode a, UserChainNode b) {
-        for(int x:a.cells())for(int y:b.cells())if(!weak(x*10+a.getCandidate(),y*10+b.getCandidate()))return false;
+        for(int x:a.atoms())for(int y:b.atoms())if(!weak(x,y))return false;
         return true;
     }
     static boolean strong(Sudoku2 board, UserChainNode a, UserChainNode b) {
-        return ordinaryStrong(board,a,b) || a.getCandidate()!=b.getCandidate()
+        return ordinaryStrong(board,a,b) || a.sameDigit()>0 && b.sameDigit()>0 && a.sameDigit()!=b.sameDigit()
                 && NativeAlsStrongLinks.forBoard(board).find(a,b)!=null;
     }
-    private static String encodedRelation(int a,int b) {
-        a=Chain.setSStrong(a,false);b=Chain.setSStrong(b,false);
-        return Math.min(a,b)+":"+Math.max(a,b);
-    }
-    private static void addAlsPremises(SolutionStep step,int[] proof,Map<String,solver.Als> premises) {
-        for(int i=1;i<proof.length;i++) {
-            if(!Chain.isSStrong(proof[i]) || Chain.isSStrong(proof[i-1]))continue;
-            solver.Als als=premises.get(encodedRelation(proof[i-1],proof[i]));
+    private static void addAlsPremises(SolutionStep step,UserChainProof proof,Map<String,solver.Als> premises) {
+        for(int i=1;i<proof.getNodes().size();i++) {
+            if(!proof.getTruths().get(i) || proof.getTruths().get(i-1))continue;
+            solver.Als als=premises.get(relationKey(proof.getNodes().get(i-1),proof.getNodes().get(i),true));
             if(als==null)continue;
             boolean present=false;
             for(AlsInSolutionStep existing:step.getAlses()) {
@@ -159,21 +158,26 @@ final class UserChainValidator {
     private static List<Integer> toList(SudokuSet set) {
         List<Integer> result=new ArrayList<>();for(int i=0;i<set.size();i++)result.add(set.get(i));return result;
     }
-    private static boolean ordinaryStrong(Sudoku2 board, UserChainNode a, UserChainNode b) {
-        if(!a.grouped() && !b.grouped())return strong(board,a.getCellIndex()*10+a.getCandidate(),b.getCellIndex()*10+b.getCandidate());
-        if(!weak(a,b) || a.getCandidate()!=b.getCandidate())return false;
-        Set<Integer> covered=new HashSet<Integer>();
-        for(int x:a.cells())covered.add(x);for(int x:b.cells())covered.add(x);
-        for(int kind=0;kind<3;kind++) {
-            int u=unit(a.cells()[0],kind);boolean shared=true;
-            for(int x:covered)if(unit(x,kind)!=u)shared=false;
-            if(!shared)continue;
-            boolean complete=true;
-            for(int x=0;x<81;x++)if(unit(x,kind)==u && board.getValue(x)==0 && board.isCandidate(x,a.getCandidate()) && !covered.contains(x))complete=false;
-            if(complete)return true;
+    static boolean ordinaryStrong(Sudoku2 board, UserChainNode a, UserChainNode b) {
+        // Covering any complete cell or house is sufficient for A OR B, even when
+        // the groups overlap. Strong does not imply mutually exclusive.
+        Set<Integer> covered=new HashSet<>();for(int x:a.atoms())covered.add(x);for(int x:b.atoms())covered.add(x);
+        for(int cell=0;cell<81;cell++)if(board.getValue(cell)==0){
+            boolean complete=true;int count=0;
+            for(int d=1;d<=9;d++)if(board.isCandidate(cell,d)){count++;if(!covered.contains(cell*10+d))complete=false;}
+            if(count>0&&complete)return true;
+        }
+        for(int kind=0;kind<3;kind++)for(int u=0;u<9;u++)for(int d=1;d<=9;d++){
+            boolean complete=true,placed=false;int count=0;
+            for(int cell=0;cell<81;cell++)if(unit(cell,kind)==u){
+                if(board.getValue(cell)==d)placed=true;
+                if(board.getValue(cell)==0&&board.isCandidate(cell,d)){count++;if(!covered.contains(cell*10+d))complete=false;}
+            }
+            if(!placed&&count>0&&complete)return true;
         }
         return false;
     }
+
     private static int unit(int cell, int kind) {
         return kind == 0 ? Sudoku2.getRow(cell) : kind == 1 ? Sudoku2.getCol(cell) : Sudoku2.getBlock(cell);
     }
@@ -182,7 +186,7 @@ final class UserChainValidator {
         graph.get(2 * a + (strong ? 0 : 1)).add(2 * b + (strong ? 1 : 0));
         graph.get(2 * b + (strong ? 0 : 1)).add(2 * a + (strong ? 1 : 0));
     }
-    private static int[] proof(UserChain chain, UserChainNode[] nodes, int target, boolean assumption) {
+    private static UserChainProof proof(UserChain chain, UserChainNode[] nodes, int target, boolean assumption) {
         List<UserChainNode> ids = new ArrayList<UserChainNode>(Arrays.asList(nodes));
         int targetIndex=-1;
         for(int i=0;i<nodes.length;i++)if(!nodes[i].grouped() && nodes[i].contains(target/10,target%10))targetIndex=i;
@@ -212,11 +216,8 @@ final class UserChainValidator {
         List<Integer> path = new ArrayList<Integer>();
         for (int at = end;; at = parent[at]) { path.add(at); if (at == start) break; }
         Collections.reverse(path);
-        int[] encoded = new int[path.size()];
-        for (int i = 0; i < encoded.length; i++) {
-            int literal = path.get(i);
-            encoded[i] = ids.get(literal / 2).encoded(literal % 2 == 1);
-        }
-        return encoded;
+        UserChainProof result=new UserChainProof();
+        for(int literal:path){result.getNodes().add(ids.get(literal/2).copy());result.getTruths().add(literal%2==1);}
+        return result;
     }
 }

@@ -30,7 +30,7 @@ final class NativeAlsStrongLinks {
         return cached;
     }
     Als find(UserChainNode a,UserChainNode b) {
-        if(a.getCandidate()==b.getCandidate() || !a.validShape() || !b.validShape())return null;
+        if(a.sameDigit()==0 || b.sameDigit()==0 || a.sameDigit()==b.sameDigit() || !a.validShape() || !b.validShape())return null;
         Als best=null;
         for(Als als:alses) {
             if(matches(als.indicesPerCandidat[a.getCandidate()],a.cells())

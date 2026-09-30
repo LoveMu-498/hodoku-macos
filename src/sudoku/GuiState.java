@@ -80,6 +80,9 @@ public class GuiState {
 	private SortedMap<Integer, Color> coloringMap = null;
 	private SortedMap<Integer, Color> coloringCandidateMap = null;
 	private boolean includeAnnotations;
+    private int doodleHypothesisConsumedMask;
+    private List<Integer> doodleHypothesisUndoMasks;
+    private List<Integer> doodleHypothesisRedoMasks;
 	private List<DoodleStroke> doodleStrokes;
 	private List<UserChain> userChains;
 	private List<List<DoodleStroke>> doodleUndoHistory;
@@ -113,6 +116,16 @@ public class GuiState {
 
 	/**
 	 * Default constructor, only for XmlEncoder/XmlDecoder.<br>
+	 */
+    public int getDoodleHypothesisConsumedMask() { return doodleHypothesisConsumedMask; }
+    public void setDoodleHypothesisConsumedMask(int value) { doodleHypothesisConsumedMask = value & 63; }
+    public List<Integer> getDoodleHypothesisUndoMasks() { return doodleHypothesisUndoMasks; }
+    public void setDoodleHypothesisUndoMasks(List<Integer> value) { doodleHypothesisUndoMasks = value; }
+    public List<Integer> getDoodleHypothesisRedoMasks() { return doodleHypothesisRedoMasks; }
+    public void setDoodleHypothesisRedoMasks(List<Integer> value) { doodleHypothesisRedoMasks = value; }
+
+	/**
+	 * Default constructor, only for XmlEncoder/XmlDecoder.
 	 */
 	public GuiState() {
 

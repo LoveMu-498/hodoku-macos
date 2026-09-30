@@ -26,9 +26,9 @@ public final class GroupedChainInteractionProbe {
             p.setSudoku((String)null);p.getSudoku().setSudoku(new String(new char[81]).replace('\0','0'));p.setShowCandidates(true);paint(p);p.setAnnotationTool(AnnotationTool.FREE_CHAIN);
             click(p,9,3,false);click(p,10,3,true);click(p,11,3,true);
             UserChain chain=(UserChain)field(p,"activeUserChain");check(chain.getNodes().size()==1&&chain.getNodes().get(0).cells().length==3,"Shift does not extend group");
-            click(p,12,3,true);check(chain.getNodes().get(0).cells().length==3,"fourth member accepted");
+            click(p,12,3,true);check(chain.getNodes().get(0).cells().length==4,"fourth member rejected");
             Method undo=SudokuPanel.class.getDeclaredMethod("undoUserChains");undo.setAccessible(true);undo.invoke(p);
-            chain=(UserChain)field(p,"activeUserChain");check(chain.getNodes().get(0).cells().length==2,"undo loses member granularity");
+            chain=(UserChain)field(p,"activeUserChain");check(chain.getNodes().get(0).cells().length==3,"undo loses member granularity");
             Method redo=SudokuPanel.class.getDeclaredMethod("redoUserChains");redo.setAccessible(true);redo.invoke(p);
             click(p,22,3,false);click(p,31,3,false);click(p,10,3,false);
             chain=(UserChain)field(p,"activeUserChain");check(chain.isClosed(),"first-group member fails to close");

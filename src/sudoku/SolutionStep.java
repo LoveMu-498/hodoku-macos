@@ -71,6 +71,13 @@ public class SolutionStep implements Comparable<SolutionStep>, Cloneable {
 	private SudokuSet potentialCannibalisticEliminations = new SudokuSet(); // for fish only
 	private SudokuSet potentialEliminations = new SudokuSet(); // for fish only
 
+    private List<UserChainProof> generalizedProofs = new ArrayList<>();
+    private List<UserChain> authoredChainDiagram = new ArrayList<>();
+    public List<UserChain> getAuthoredChainDiagram(){return authoredChainDiagram;}
+    public void setAuthoredChainDiagram(List<UserChain> value){authoredChainDiagram=value;}
+    public List<UserChainProof> getGeneralizedProofs(){return generalizedProofs;}
+    public void setGeneralizedProofs(List<UserChainProof> value){generalizedProofs=value;}
+
 	public SolutionStep() {}
 
 	/**
@@ -89,6 +96,8 @@ public class SolutionStep implements Comparable<SolutionStep>, Cloneable {
 		try {
 			newStep = (SolutionStep) super.clone();
 			newStep.type = type;
+            newStep.authoredChainDiagram=ChainTextCodec.copy(authoredChainDiagram);
+            newStep.generalizedProofs=new ArrayList<>();for(UserChainProof p:generalizedProofs)newStep.generalizedProofs.add(p.copy());
 			newStep.entity = entity;
 			newStep.entityNumber = entityNumber;
 			newStep.entity2 = entity2;
@@ -120,6 +129,7 @@ public class SolutionStep implements Comparable<SolutionStep>, Cloneable {
 
 	public void reset() {
         authoredPlacement=false;
+        generalizedProofs.clear();authoredChainDiagram.clear();
 		type = SolutionType.HIDDEN_SINGLE;
 		entity = 0;
 		entityNumber = 0;
@@ -717,6 +727,20 @@ public class SolutionStep implements Comparable<SolutionStep>, Cloneable {
 	 * @return
 	 */
 	public String toString(int art) {
+        if(!generalizedProofs.isEmpty()){
+            StringBuilder text=new StringBuilder(getStepName());
+            if(art>1){UserChainProof p=generalizedProofs.get(0);text.append(": ");
+                for(int i=0;i<p.getNodes().size();i++){
+                    if(i>0)text.append(p.getTruths().get(i).equals(p.getTruths().get(i-1))?" -> ":p.getTruths().get(i)?" = ":" - ");
+                    text.append(ChainTextCodec.node(p.getNodes().get(i)));
+                }
+            }
+            if(art>0){List<String> claims=new ArrayList<>();for(Candidate c:candidatesToDelete)claims.add(getCellPrint(c.getIndex(),false)+"<>"+c.getValue());
+                if(authoredPlacement)for(int i=0;i<indices.size()&&i<values.size();i++)claims.add(getCellPrint(indices.get(i),false)+"="+values.get(i));
+                if(!claims.isEmpty())text.append(" => ").append(String.join(", ",claims));
+            }
+            return text.toString();
+        }
         if (authoredPlacement) {
             String result=getStepName();
             if(art>0)result += " => " + getCellPrint(indices.get(0),false) + "=" + values.get(0);

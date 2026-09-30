@@ -36,13 +36,13 @@ public final class ChainOriginProbe {
         try {
             edt(()->{
                 ApplicationAppearance.initialize(args.length>0?AppearanceMode.DARK:AppearanceMode.LIGHT);
-                f=new MainFrame(null);p=f.getSudokuPanel();p.setSudoku((String)null);p.getSudoku().set(GroupedChainProbe.blank());
+                f=new MainFrame(null);f.setVisible(true);p=f.getSudokuPanel();p.setSudoku((String)null);p.getSudoku().set(GroupedChainProbe.blank());
                 p.setShowCandidates(true);p.setAnnotationTool(AnnotationTool.FREE_CHAIN);render(null);
                 check(p.currentChainOrigin()==null,"empty board has an origin");
                 click(1,0,candidate(0,1));check(p.currentChainOrigin().contains(0,1),"first mark not next origin");
                 BufferedImage marked=render("origin-single");Point first=candidate(0,1);
                 alt(true);check(p.currentChainOrigin()==null,"Option kept origin");
-                BufferedImage option=render("origin-option");check(bluePixels(marked,first)>bluePixels(option,first)+20,"origin outline missing");
+                BufferedImage option=render("origin-option");check(bluePixels(marked,first)==bluePixels(option,first),"Option moved the stationary endpoint cue");
                 alt(false);check(p.currentChainOrigin().contains(0,1),"Option release lost origin");
                 click(1,InputEvent.SHIFT_DOWN_MASK,candidate(1,1));check(p.currentChainOrigin().cells().length==2,"group origin missing");
                 render("origin-group");
@@ -51,17 +51,17 @@ public final class ChainOriginProbe {
                 click(1,0,candidate(30,1));BufferedImage beforeHover=render(null);
                 event(MouseEvent.MOUSE_MOVED,MouseEvent.NOBUTTON,0,candidate(1,1));
                 BufferedImage hovered=render("origin-group-hover");
-                check(bluePixels(hovered,candidate(1,1))>bluePixels(beforeHover,candidate(1,1))+10,"whole-group target preview missing");
-                click(1,0,candidate(1,1));check(p.currentChainOrigin().cells().length==2,"existing group became single");
+                check(bluePixels(hovered,candidate(1,1))==bluePixels(beforeHover,candidate(1,1)),"ordinary hover still draws group target circles");
+                click(1,0,candidate(1,1));check(p.currentChainOrigin().contains(12,1)&&active().getNodes().stream().anyMatch(n->n.atoms().length==2),"reconnected path lost whole group or surviving endpoint");
                 check(UserChainAssembly.assemble(p.currentReasoningChains()).chain!=null,"shared group did not connect segments");
                 click(1,InputEvent.ALT_DOWN_MASK,candidate(60,1));check(p.currentChainOrigin()==null,"held Option showed departure");
-                alt(false);check(p.currentChainOrigin().contains(60,1),"new origin not restored on release");
+                alt(false);check(p.currentChainOrigin()==null,"disconnected paths show a unique origin");
                 UserChainAssembly.Result split=UserChainAssembly.assemble(p.currentReasoningChains());
                 check(split.problem==UserChainValidator.Problem.DISCONNECTED_INPUT&&split.componentAnchors.size()==2,"independent component count");
                 call("handleReasoningEnter");check(read("reasoningProposal")==null,"disconnected chains analyzed partially");
                 Field status=MainFrame.class.getDeclaredField("statusLabelCellCandidate");status.setAccessible(true);
                 String message=((javax.swing.JLabel)status.get(f)).getText();check(message.contains("2")&&message.contains("r7c7"),"disconnected hint missing count/location");
-                alt(true);p.cancelAnnotationToolInteractionOnDeactivation();check(p.currentChainOrigin()!=null,"focus loss left sticky Option");
+                alt(true);p.cancelAnnotationToolInteractionOnDeactivation();check(p.currentChainOrigin()==null,"disconnected paths show origin after focus loss");
                 // Complete group expansion must update exact references in prior segments, with one undo.
                 p.setSudoku((String)null);p.getSudoku().set(GroupedChainProbe.blank());p.setAnnotationTool(AnnotationTool.FREE_CHAIN);render(null);
                 click(1,0,candidate(12,1));click(1,0,candidate(0,1));click(3,InputEvent.SHIFT_DOWN_MASK,candidate(0,1));
@@ -73,6 +73,7 @@ public final class ChainOriginProbe {
                 done().add(GroupedChainProbe.chain(false,new UserChainNode[]{GroupedChainProbe.node(1,0,9),GroupedChainProbe.node(1,30)},true));
                 UserChain before=active();int count=before.getNodes().size();click(1,0,candidate(0,1));
                 check(active()==before&&active().getNodes().size()==count,"ambiguous group changed input");
+                javax.swing.MenuSelectionManager.defaultManager().clearSelectedPath();
                 longGroupedChain();
                 call("handleReasoningEnter");check(p.currentChainOrigin()==null,"analysis retained a drawing departure");
                 System.out.println("Origin/Option pixels, full-group reconnect, atomic group expansion, ambiguity and all-components diagnostics passed");return null;

@@ -14,6 +14,7 @@ public final class ReplaySession {
     /** Zero until this attempt is finished or superseded. */
     public long endedAt;
     public boolean completed, retained, pinned;
+    boolean foreignTimeline;
     public String interruption="";
     public String sourceReplayId="";
     public int sourceFrameIndex=-1;
@@ -32,5 +33,6 @@ public final class ReplaySession {
         for(ReplayFrame f:operation)if(f.operationId!=id)throw new IllegalArgumentException("Mixed operation IDs");
         frames.addAll(operation);
     }
+    void setInitialFrameAnnotations(ReplayAnnotations annotations){frames.set(0,frames.get(0).withAnnotations(annotations));}
     void loadFrame(ReplayFrame frame){frames.add(frame);}
 }

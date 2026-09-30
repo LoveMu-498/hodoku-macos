@@ -405,6 +405,32 @@ public final class AnnotationInteractionProbe {
 			require(panel.getAnnotationTool() == AnnotationTool.DEFAULT_MOUSE,
 					"modified Escape did not exit Doodle mode for mask " + modifier);
 		}
+
+		panel.toggleBivalueFilter();
+		panel.setActiveCell(0);
+		panel.setStep(new SolutionStep(SolutionType.FULL_HOUSE));
+		panel.toggleTrivalueFilter();
+		press(panel, KeyEvent.VK_ESCAPE, 0);
+		require(panel.getStep() != null && !panel.hasAnyViewFilter()
+				&& panel.getCellSelectionSize() == 0,
+				"latest filter and ordinary selection did not leave together before the older preview");
+		press(panel, KeyEvent.VK_ESCAPE, 0);
+		require(panel.getStep() == null, "older preview remained after the next Escape");
+
+		panel.setAnnotationTool(AnnotationTool.DOODLE);
+		panel.setStep(new SolutionStep(SolutionType.FULL_HOUSE));
+		panel.dispatchEvent(mouse(panel, MouseEvent.MOUSE_PRESSED, x, y));
+		panel.dispatchEvent(drag(panel, x + 12, y + 12));
+		press(panel, KeyEvent.VK_ESCAPE, 0);
+		require(readField(panel, "activeDoodleStroke") == null && panel.getStep() != null,
+				"Escape did not cancel a stroke started after the preview");
+		press(panel, KeyEvent.VK_ESCAPE, 0);
+		require(panel.getStep() == null && panel.getAnnotationTool() == AnnotationTool.DOODLE,
+				"Escape did not close the preview before the older Doodle tool");
+		panel.dispatchEvent(mouse(panel, MouseEvent.MOUSE_RELEASED, x + 12, y + 12));
+		press(panel, KeyEvent.VK_ESCAPE, 0);
+		require(panel.getAnnotationTool() == AnnotationTool.DEFAULT_MOUSE,
+				"Escape did not exit the remaining Doodle tool");
 	}
 
 	private static void verifySettledToggleAfterBoardUse(SudokuPanel panel, int x, int y) {
