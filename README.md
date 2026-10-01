@@ -32,6 +32,14 @@
 包含中文安装说明、Applications 拖拽入口、许可和对应源码。接收者无需安装 Java 或 Homebrew。
 详见 [构建与验证说明](docs/distribution/README.md)。下方为原上游说明。
 
+## 云端开发
+
+公开仓库支持 Linux/JDK 21 源码构建和隔离回归测试，可配置为 ChatGPT / Codex 云端环境。
+Ubuntu/Debian 环境的安装入口为 `bash script/setup_cloud.sh`；已有依赖时使用
+`python3 script/check_cloud.py --profile core`，完整云端检查在 Xvfb 下运行。
+PR 自动执行 Linux 检查，macOS 原生与成品验证仍在 Mac 完成。环境设置、命令、隐私和
+PR/本地同步流程见 [云端开发说明](docs/cloud-development.md)。
+
 Hodoku is a solver/generator/trainer/analyzer for standard sudoku. It is written in
 Java/Swing and should therefore run on any platform supported by Java (tested
 on Windows and Linux - Ubuntu/GTK+-LAF). Since it is written in Java the
