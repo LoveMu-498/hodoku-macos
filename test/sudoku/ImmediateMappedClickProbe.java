@@ -3,6 +3,11 @@ import java.awt.*;import java.awt.event.*;import java.awt.image.*;import java.ut
 import static sudoku.GroupedChainTransactionProbe.*;
 import static sudoku.ChainEditingProbe.*;
 public final class ImmediateMappedClickProbe {
+ // These queued input events describe a fast double click. Their input timestamps
+ // must not include time spent processing the first handler on a busy CI runner.
+ static long inputWhen=System.currentTimeMillis();
+ static void event(int id,int button,int mods,Point pt){inputWhen+=10;p.dispatchEvent(new MouseEvent(p,id,inputWhen,mods,pt.x,pt.y,1,false,button));}
+ static void click(int button,int mods,Point pt){event(MouseEvent.MOUSE_PRESSED,button,mods,pt);event(MouseEvent.MOUSE_RELEASED,button,mods,pt);}
  static java.util.List<DoodleStroke> ink()throws Exception{return (java.util.List<DoodleStroke>)read("doodleStrokes");}
  static int history(String n)throws Exception{return ((Stack<?>)read(n)).size();}
  static void mode(AnnotationTool t)throws Exception{p.flushMappedClick();p.setAnnotationTool(t);}

@@ -13,6 +13,8 @@ Linux + JDK 21 编译全部 Java 源码与测试，使用 `--release 8` 保持�
 该清单不是全部测试；修改其他功能时仍须补跑相应已有 probe。
 `MacOSApplicationProbe` 的原生 Desktop 注册、`ReplaySharingProbe` 的 Cocoa 分享 helper
 和 `GuiLocalizationProbe` 的 macOS 菜单约定留在 Mac 检查，不在云端假装模拟平台验收。
+`AppearanceRenderingProbe`、`ToolbarIconRenderingProbe` 包含 Mac 深色外观断言；
+应用在非 Mac 系统主动保持浅色，字体像素的居中结果也随系统不同，所以这些检查留在 Mac 执行。
 
 Xvfb 的 Swing 通过不证明 macOS 原生事件、手感、Aqua、签名、Mach-O 依赖、安装或
 分享包可用。最终 macOS 成品按 [分发验证](distribution/README.md) 在 Mac 完成。

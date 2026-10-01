@@ -31,13 +31,14 @@ SWING = (
     'ChainPreviewSourceChangeProbe', 'ChainTailBacktrackProbe',
     'BoxSingleReasoningProbe', 'BoxSelectionToggleProbe',
     'ReplayLifecycleProbe', 'ReplayViewerProbe', 'ReplayInterchangeGuiProbe',
-    'SessionLifecycleProbe', 'AppearanceRenderingProbe',
-    'ToolbarIconRenderingProbe', 'KeyboardHelpDialogProbe',
+    'SessionLifecycleProbe', 'KeyboardHelpDialogProbe',
     'ChainRouteGeometryProbe', 'BoxReasoningRenderingProbe',
     'ReplayProofProbe', 'ReplayAuthoredProbe', 'ReplayRecoveryAuditProbe',
 )
 # MacOSApplicationProbe registers native Desktop handlers; ReplaySharingProbe needs
 # the compiled macOS share helper. They remain in the macOS build/release workflows.
+# AppearanceRenderingProbe and ToolbarIconRenderingProbe require Mac-only dark
+# appearance initialization (ApplicationAppearance.initialize deliberately skips Linux).
 
 
 def tracked_privacy():

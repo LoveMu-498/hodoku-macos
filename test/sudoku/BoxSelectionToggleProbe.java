@@ -13,6 +13,7 @@ import javax.swing.SwingUtilities;
 public final class BoxSelectionToggleProbe {
     private static SudokuPanel panel;
     private static MainFrame frame;
+    private static int deletionModifier;
     private static Point cell(int index) throws Exception {
         Field size = SudokuPanel.class.getDeclaredField("cellSize"); size.setAccessible(true);
         int half = size.getInt(panel) / 2;
@@ -36,6 +37,7 @@ public final class BoxSelectionToggleProbe {
     public static void main(String[] args) throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             try {
+                deletionModifier = SudokuUtil.getDeletionModifierMask();
                 frame = new MainFrame(null); panel = frame.getSudokuPanel();
                 panel.setSudoku((String)null);
                 panel.getSudoku().setSudoku(new String(new char[81]).replace('\0', '0')); 
@@ -59,10 +61,10 @@ public final class BoxSelectionToggleProbe {
                 history("undoBoxReasoning");
                 require(panel.getBoxReasoningGroupsSnapshot().get(0).contains(0) && panel.getBoxReasoningGroupsSnapshot().get(1).isEmpty(), "atomic undo");
                 history("redoBoxReasoning");
-                click(20,1,InputEvent.CTRL_DOWN_MASK);
-                require(!panel.getBoxReasoningFootprint().contains(20), "Control cannot add");
-                click(1,1,InputEvent.CTRL_DOWN_MASK);
-                require(!panel.getBoxReasoningFootprint().contains(1), "Control removes");
+                click(20,1,deletionModifier);
+                require(!panel.getBoxReasoningFootprint().contains(20), "deletion modifier cannot add");
+                click(1,1,deletionModifier);
+                require(!panel.getBoxReasoningFootprint().contains(1), "deletion modifier removes");
                 require(board.equals(TechniqueStepCatalog.createSignature(panel.getSudoku())), "annotation changed puzzle");
                 panel.clearBoxReasoningWithUndo();
                 panel.getSudoku().setCell(2,9);
@@ -81,8 +83,8 @@ public final class BoxSelectionToggleProbe {
                 require(text.contains("B") && text.contains("2") && text.contains("3"), "visible status counts: "+text);
                 require(panel.getStep()==null, "inspection must not analyze");
                 SudokuSet footprint=panel.getBoxReasoningFootprint();
-                click(0,3,InputEvent.CTRL_DOWN_MASK);
-                require(footprint.equals(panel.getBoxReasoningFootprint()), "Control-right cannot edit boxes");
+                click(0,3,deletionModifier);
+                require(footprint.equals(panel.getBoxReasoningFootprint()), "modified right-click cannot edit boxes");
                 panel.getCellZoomPanel().selectPaletteGroup(0);
                 require(panel.getInspectedBoxGroup()==0, "held preview follows current group");
                 event(MouseEvent.MOUSE_RELEASED,cell(0),2,0);
@@ -94,7 +96,7 @@ public final class BoxSelectionToggleProbe {
                 click(20,1,0);require(panel.getInspectedBoxGroup()==-1, "edit hides statistics");
                 panel.setAnnotationTool(AnnotationTool.CANDIDATE_COLORING);
                 require(panel.getInspectedBoxGroup()==-1, "leaving box tool hides counts");
-                System.out.println("Box toggle/preview/Control/history/ALS distinct candidate counts passed: "+text);
+                System.out.println("Box toggle/preview/platform deletion modifier/history/ALS distinct candidate counts passed: "+text);
             } catch(Exception error) { throw new RuntimeException(error); }
             finally { if(frame!=null)frame.dispose(); }
         });
