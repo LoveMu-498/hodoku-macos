@@ -67,7 +67,8 @@ python3 -m unittest discover -s test/packaging -p test_public_privacy.py
 不代表实际云端或打包成品验证。`test_bundle_audit.py` 使用 Mach-O/clang，应留在 macOS 验证。
 
 `.github/workflows/cloud-checks.yml` 在 PR、main/codex 分支 push 或手动触发时运行上述 Linux 检查。
-CI 仅有 `contents: read`，不使用仓库 secrets，不自动合并、不上传 JAR/日志、不发 Release。
+CI 仅有 `contents: read`，不使用仓库 secrets，不自动合并、不上传 JAR/日志附件、不发 Release。
+CI 控制台记录通过/失败；失败时提供隔离 fixture 的错误摘要，敏感模式和本地路径会遮盖。
 第三方 Action 固定到 commit；更新时核对官方来源。失败时检查 job 日志和对应 probe，
 不能硬编码结果、移除有效断言或以跳过失败作为通过。
 

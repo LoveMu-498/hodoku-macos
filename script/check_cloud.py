@@ -135,6 +135,14 @@ def isolated_run(command, headless, jdk, report, name, timeout):
     result = {'name': name, 'exit_code': code, 'timeout': timed_out,
               'seconds': round(time.monotonic() - started, 2)}
     print(f'{"PASS" if code == 0 and not timed_out else "FAIL"} {name} ({result["seconds"]}s)', flush=True)
+    if code != 0 or timed_out:
+        from audit_public_source import PATTERNS
+        print('Failure diagnostic (isolated test; sensitive patterns redacted):', flush=True)
+        for line in (report / (name + '.log')).read_text(errors='replace').splitlines()[-45:]:
+            line = line.replace(str(sandbox), '[isolated]')
+            if any(pattern.search(line) for pattern in PATTERNS.values()):
+                line = '[redacted diagnostic line]'
+            print(line, flush=True)
     return result
 
 
