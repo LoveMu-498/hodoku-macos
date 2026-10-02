@@ -10,7 +10,7 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PATHS = ('src', 'test', 'script', 'docs/distribution',
+PATHS = ('src', 'test', 'script', '.github', 'docs/distribution', 'docs/cloud-development.md',
          'docs/open-source-release.md', 'docs/annotation-input.md', 'docs/releases', 'docs/replay-sharing.md', 'docs/replay-file-format.md', 'README.md', 'COPYING',
          'UPSTREAM.md', 'CHANGES.md', 'THIRD_PARTY_NOTICES.md', '.gitignore')
 EXCLUDED = {'__pycache__', '.DS_Store'}

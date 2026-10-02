@@ -1,0 +1,38 @@
+name: Cloud Java checks
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-checks-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux Java 21 / core + Swing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install display and font dependencies
+        run: bash script/setup_cloud.sh --dependencies-only
+      - name: Compile source JAR and run isolated Java checks
+        run: xvfb-run -a -s '-screen 0 1600x1200x24' python3 script/check_cloud.py --profile all
+      - name: Source export and privacy regression checks
+        run: |
+          python3 -m unittest discover -s test/packaging -p test_distribution_sources.py
+          python3 -m unittest discover -s test/packaging -p test_public_privacy.py
+      - name: Check tracked files remain unchanged
+        run: git diff --exit-code

@@ -12,3 +12,11 @@ legacy/
 /mac-app.zip
 __pycache__/
 *.pyc
+.scratch/
+.env
+.env.*
+*.hcfg
+*.hrep
+*.checkpoint
+/last-session.xml
+/null.log
