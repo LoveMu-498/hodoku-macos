@@ -1,0 +1,45 @@
+{
+  "source": "Synthetic generation; not a personal replay or actual Windows output",
+  "protocol": "HRPL-COMMON-1.0",
+  "fixtures": {
+    "core-v3": {
+      "file": "core-v3.hrep.b64",
+      "decoded_sha256": "596224d42a0ecf8252a90373b19b8d05b2bc9ab254047553a4c0fa7dc5864b79",
+      "expected": {
+        "read": "accept",
+        "frames": 2,
+        "operation_ids": [
+          0,
+          1
+        ],
+        "elapsed_ms": [
+          0,
+          1000
+        ],
+        "last_r1c3": 4,
+        "last_r1c3_fixed": false,
+        "overlay_preserved": "EXT_SAMPLE1 display-only\n",
+        "method_flags": [
+          false,
+          false
+        ]
+      }
+    },
+    "unsupported-version": {
+      "file": "unsupported-version.hrep.b64",
+      "decoded_sha256": "ebed8d726da60b64c977a9a7fa255410fc3c470c09a5c70e37ff5070d25ed203",
+      "expected": {
+        "read": "reject",
+        "reason": "unsupported container version 99"
+      }
+    },
+    "truncated-v3": {
+      "file": "truncated-v3.hrep.b64",
+      "decoded_sha256": "4a546bee2c4cf3c7583614c07a0fb8765ff5161fc41cc7473d508bfbec3858c3",
+      "expected": {
+        "read": "reject",
+        "reason": "truncated cell payload"
+      }
+    }
+  }
+}
