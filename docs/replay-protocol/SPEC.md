@@ -1,8 +1,14 @@
 # 赛事回放共同协议候选规范
 
-ID: HRPL-COMMON-0.1-draft  
-Status: proposed; bilateral acceptance pending  
+ID: HRPL-COMMON-1.0
+Status: candidate; bilateral hash acknowledgements pending
 Date: 2026-10-05
+
+## 首版确认范围
+
+本次提交完整的最小共同基线供直接确认：共同 v3 容器、基础历史语义、已部署标签不可改义、未知可选数据保留、能力／损失分别登记，以及共同修订规则。扩展标签的完整注册项随各次修订加入；尚未核实的 O10／MT 等不声明为基础能力已实现。
+
+两至三次交接按 CONVERGENCE.md 收敛。协议编号预定为 1.0，是否双方接受由针对准确 SPEC 及 CONVERGENCE／INITIATIVE 哈希清单的确认记录决定；冻结确认不修改已被确认的规范字节。未实现的可选能力不阻止规范确认，不能据此把不兼容文件宣称兼容。
 
 ## 三层边界
 
@@ -21,6 +27,8 @@ Date: 2026-10-05
 依次：magic:int、version:int、id:UTF、startedAt/elapsedMillis/endedAt:long、completed:boolean、frameCount:int。
 
 每帧依次：operationId/wallTimeMillis/elapsedMillis:long、label:UTF、overlayData:UTF、methodStep:boolean；然后 81 格各 value:byte、fixed:boolean、candidates:short、userCandidates:short。行列位置用格索引 0..80，候选 atom=cell*10+digit，digit=1..9。
+
+盘面 value 为 0..9，0 表示空；fixed=true 的格不能为空。两个候选 short 只用低 9 位，数字 d 对应 bit(d-1)；已填格的普通 candidates 为 0。初版共享写出采用当前 Mac 已实施的保守容量档案：文件不超过 128 MiB、1..100000 帧、UTF 每项编码不超过 65535 字节；operationId 和有效 elapsedMillis 不递减。新的更大档案先提案，不静默截断。源代码是否已落实这些限额在能力表分别声明。
 
 现有 Mac 明确只接本格式族 v3，不支持已退役的旧 Mac 外壳。版本支持范围必须逐项列出；不能用版本整数大小替代格式定义。Mac 私有尾扩展及完整字段见 ../replay-file-format.md；本候选规范不要求 Windows 执行私有证明。
 
@@ -52,7 +60,7 @@ Date: 2026-10-05
 
 必须理解的重要新语义，不能仅在 v3 中新增一个旧端会忽略的 required 标记来保证安全；旧客户端不会因此自动拒绝。需要通过已升级读取器的受控过渡、新容器版本，或明确有损的兼容导出保护。
 
-读取限额、边界和畸形输入作为共享安全基线另行确认；提案至少覆盖非法格／数字、非有限几何值、错误帧顺序、未知必要版本、UTF 溢出、截断与过大文件。不能静默截断或覆盖上次成功文件。
+读取边界的最低合成样例见 fixtures/README.md；扩展提案另覆盖非法格／数字、非有限几何值、错误帧顺序、未知必要版本、UTF 溢出、截断与过大文件。不能静默截断或覆盖上次成功文件。
 
 ## 修订与验收
 
@@ -60,4 +68,4 @@ Date: 2026-10-05
 
 对每个已接受能力至少有合成文件和预期语义，并验证两种方向的读写往返、旧端行为、未知数据保留、不同窗口大小显示，以及分支不会执行历史证据。编辑重录与直接另存分开测。比较共同数据及声明允许丢失的平台内容，不强求同一字体或像素图。
 
-先通过取得与提交确认的真实通道演练，再逐项扩大共同能力。本候选规范不是当前所有要求已实现的证明。
+使用真实规范决策回执即可验证写入通道，不强制先提交无必要的文字改动。按 CONVERGENCE.md 在相同入口收敛及持续修订；人类只处理超出授权或真实阻碍。本候选规范不是当前所有要求已实现的证明。

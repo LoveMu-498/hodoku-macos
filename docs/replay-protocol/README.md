@@ -1,11 +1,13 @@
 # 赛事回放共同协议入口
 
-日期：2026-10-05。协议候选：`HRPL-COMMON-0.1-draft`。
+日期：2026-10-05。首版协议候选：`HRPL-COMMON-1.0`，尚未双方确认。
 
 **状态：倡议与草稿候选，等待 Windows 开发方确认；尚未成为主分支正式协议，也未取得双方流程验收。** Mac 项目已落实修改前检查协议的本地工作规则，不等于 Windows 已采纳规范。
 
 - [交给 Windows 开发方的倡议书](INITIATIVE.md)：双方责任、实际往返验收、GitHub 失败时的替代路径和必须回传的确认项。
 - [共同协议候选规范](SPEC.md)：共同格式、语义、版本与兼容等级；现有实现事实和新要求明确分开。
+- [两至三次交接收敛规则](CONVERGENCE.md)：同一入口、具体默认方案、准确版本接受与真正阻碍。
+- [Windows 方 AI 执行提示词](WINDOWS-TASK.md)：第二轮直接返回 ACK、完整反提案或 BLOCK。
 - [修订提案模板](CHANGE-PROPOSAL.md)：Windows 与 Mac 均使用同一模板。
 - [Windows 接收与落实回执](WINDOWS-RECEIPT.md)：首次实际验证的必填结果；可直接编辑后离线回传。
 - [本端能力与待确认项](CAPABILITIES.md)：静态事实与实际验收分别记录，Windows 新版由对方补填。
