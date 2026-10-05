@@ -28,6 +28,8 @@ Mac 第三轮若又改变了对方未预先接受的内容，不能声称已确�
 - 技术细节有安全明确的默认方案时，AI 直接决定并记录依据；反对默认方案必须给可实施替代文字、受影响字段及实际证据。不得只返回笼统建议或把普通技术选择再交给人类转述。
 - GitHub 可用时直接在共同入口交互；GitHub 不通时第一轮必须登记一个双方可用的直接文件入口。微信等仅能由人转发的渠道属于临时降级，不能算“AI 直接持续协作”已实现。
 
+产品原生功能保持优先。共同基础为看重要历史画面和从真实快照进入棋盘；理解全部技巧、执行历史证明和编辑所有外端标注属于可选能力。原生功能扩展优先由记录适配和通用显示／原生扩展承载，不用最小共同能力压缩产品功能。
+
 ## 统一回传记录
 
 每次记录：exchange_id、round、sender、team_authorization、baseline_spec_sha256、candidate_spec_sha256、candidate_commit／候选包编号、candidate_contract_sha256s、decision、accepted_scope、amendments、blockers、evidence、channel。decision 为 ACK／AMEND／BLOCK；AMEND 必须说明接受其准确候选还是仅为未确认建议。
