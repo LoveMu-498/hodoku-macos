@@ -15,6 +15,9 @@ Linux + JDK 21 编译全部 Java 源码与测试，使用 `--release 8` 保持�
 该清单不是全部测试；修改其他功能时仍须补跑相应已有 probe。
 `ImmediateMappedClickProbe` 在宿主 AWT 初始化后选择 macOS 修饰键语义，检验本项目 T/P/L
 功能的事件处理；这属于 Linux Swing 上的功能测试，不是 Linux 完整交互支持或真实 Mac 输入。
+`BoxReasoningRenderingProbe` 同样在宿主 AWT/字体初始化后选择纯 Java macOS 外观作用域，
+断言实际浅/深分支并检查 360/630/900 三种尺寸。它按实际字形像素测量保护内区，保留逐像素
+等值和共边断言；字体边距更小时检查更大的内区，不将 Linux 字体当作 Mac 字体验收。
 `MacOSApplicationProbe` 的原生 Desktop 注册、`ReplaySharingProbe` 的 Cocoa 分享 helper
 和 `GuiLocalizationProbe` 的 macOS 菜单约定留在 Mac 检查，不在云端假装模拟平台验收。
 `AppearanceRenderingProbe`、`ToolbarIconRenderingProbe` 包含 Mac 深色外观断言；

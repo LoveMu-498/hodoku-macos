@@ -23,6 +23,7 @@ public final class BoxReasoningRenderingProbe {
 
     public static void main(String[] args) throws Exception {
         System.setProperty("apple.awt.UIElement", "true");
+        final String platformName = System.getProperty("os.name");
         final Throwable[] failure = new Throwable[1];
         final Path output = Paths.get(System.getProperty("hodoku.probe.output",
                 Paths.get(System.getProperty("java.io.tmpdir"), "hodoku-box-rendering").toString()));
@@ -36,14 +37,20 @@ public final class BoxReasoningRenderingProbe {
                 panel.getSudoku().setSudoku(new String(new char[81]).replace('\0', '0'));
                 panel.getSudoku().setUserCells(new short[Sudoku2.LENGTH]);
                 panel.clearSelection(80);
+                // Real host AWT/fonts are initialized. Exercise both custom-painted
+                // macOS appearance branches without claiming native Aqua acceptance.
+                System.setProperty("os.name", "Mac OS X");
                 for (AppearanceMode mode : new AppearanceMode[]{AppearanceMode.LIGHT, AppearanceMode.DARK}) {
                     ApplicationAppearance.initialize(mode);
+                    require(ApplicationAppearance.isDark() == (mode == AppearanceMode.DARK),
+                            "requested appearance branch was not selected: " + mode);
                     for (int size : new int[]{360, 630, 900}) checkFixture(panel, mode, size, output);
                 }
             } catch (Throwable ex) {
                 failure[0] = ex;
             } finally {
                 if (frame != null) frame.dispose();
+                System.setProperty("os.name", platformName);
                 ApplicationAppearance.initialize(AppearanceMode.LIGHT);
             }
         });
@@ -248,14 +255,25 @@ public final class BoxReasoningRenderingProbe {
     }
 
     private static void protectCandidates(SudokuPanel panel, BufferedImage bare, BufferedImage noDigits,
-            BufferedImage marked, int[] cells, String context) {
+            BufferedImage marked, int[] cells, String context) throws Exception {
         int size = panel.getX(0, 1) - panel.getX(0, 0);
         for (int cell : cells) {
             for (int digit = 1; digit <= 9; digit++)
                 require(glyphPixels(panel, bare, noDigits, cell, digit, marked) > 0,
                         context + " missing bare candidate " + digit + " in cell " + cell);
             int safeInset = actualGlyphEdgeDistance(panel, bare, noDigits, cell);
-            require(safeInset >= 3, context + " fixture has no candidate-safe edge band");
+            // The protection rectangle comes from all actual bare-glyph pixels,
+            // including host-font AA. A fixed 3px margin describes the old Mac
+            // fixture, not every host font. A smaller measured inset enlarges the
+            // exact-equality region below: candidate protection remains stricter.
+            require(safeInset > 0 && 2 * safeInset < size,
+                    context + " fixture has no measurable candidate interior: inset=" + safeInset + " cell=" + cell);
+            if (safeInset < 3) {
+                Field fontField = SudokuPanel.class.getDeclaredField("candidateFont"); fontField.setAccessible(true);
+                java.awt.Font font = (java.awt.Font) fontField.get(panel);
+                System.out.println(context + " measured glyph inset=" + safeInset + " cellSize=" + size
+                        + " cell=" + cell + " font=" + font.getName() + " family=" + font.getFamily() + " size=" + font.getSize());
+            }
             int x = panel.getX(cell / 9, cell % 9), y = panel.getY(cell / 9, cell % 9);
             require(equalRegion(bare, marked, x + safeInset, y + safeInset,
                     size - 2 * safeInset, size - 2 * safeInset),

@@ -7,13 +7,13 @@
     ".github/pull_request_template.md": "9ef7bed531cf7737e217741f43551b6625ac8fa2b02b0e7a2dee14a798df92b8",
     ".github/workflows/cloud-checks.yml": "cb9a86e8306ae92386bc8c1f598faee3c3afcc083e50d2251e037ae420f44103",
     ".gitignore": "9efa2e2bfa9f8d7b10b60a2439ca4333f8a863a88c9606b34b2dc143e3ec8112",
-    "CHANGES.md": "4b4d2bb7e2c5e8960b66230126bd14d7253d2664bf8f4037b177ccc127caf4af",
+    "CHANGES.md": "83abdafd0d617e9397fe9f9d95dc3693da8b5b639385989a85ea1b8b5ca2e5d0",
     "COPYING": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903",
     "README.md": "0be2ebf70e5c39de18de9e1532c4c9f506b935c732752690ca438ef1d92484f6",
     "THIRD_PARTY_NOTICES.md": "058f73a964d1e23eaa82171243efa6136aad74145c692a33df3f21fcc6bbd4c2",
     "UPSTREAM.md": "dc0e7b9dbc5790c5ccfee65d7105509415f8a55d30b74037d30a6ab829dbe640",
     "docs/annotation-input.md": "93de0278deffa9e269799df30313ba55ad2360e4fb3b4343c2782147721c8a7b",
-    "docs/cloud-development.md": "5b1bc795311fda935825e28ccfb467f55e25d8dc0e766c7326b7f08a97a60b5e",
+    "docs/cloud-development.md": "51aa926bd3a411506d0c1b88bce33c3183d3a95205898bb6d52e1aa574a2a9e4",
     "docs/distribution/PUBLIC_AGENTS.md": "aee5dbe51223ad898041de56cf09b3b9a953ad6e3a8b48081d66627546628aaa",
     "docs/distribution/README.md": "18d57cb074d201097282fcda00f23c441172c4725c148737b7f52c5bfb45fdbf",
     "docs/distribution/安装与分享说明.txt": "2410147ac3aec1fba6f4fd26983c714fb4b228363f581a39b4d2fe1121102cf9",
@@ -466,7 +466,7 @@
     "test/sudoku/AppearanceRenderingProbe.java": "7cac902cfa259026a34353bd28d5c96cc3f3c04840e27a2d9cb9ee91f1f97826",
     "test/sudoku/ApplicationPathsProbe.java": "265d0c212a7ea8cedd775254f9abb51dbad2d77113a758d8baa04010d2ce4969",
     "test/sudoku/AuthoredPreviewRenderingProbe.java": "90e9c7ef33e3fbaa0781ce1e9a7060045a5cd6c299cd512a2c01e2546e330822",
-    "test/sudoku/BoxReasoningRenderingProbe.java": "0b9de1feb627eb8d197f4d16ff251a67bc7cd9277f81fc6a5f08baae483b0458",
+    "test/sudoku/BoxReasoningRenderingProbe.java": "f08ca9f9cbc00c33b2640555010a55ba07d81a86d9ee626324c485acbd78ad84",
     "test/sudoku/BoxSelectionToggleProbe.java": "6a92eb559e16987764da63678c01c0d0081db4b0c7da3ff5e0ed987e52e9a5c9",
     "test/sudoku/BoxSingleReasoningProbe.java": "2f55d82420a47f82b6e5a69d264f231ca44afc9afb585a374bddca161b37251b",
     "test/sudoku/CandidateFilterGroupProbe.java": "f0b848f41cd36ba069ee35cb3d638e2a3a2c30970d1fdb0d2fde528fb341e0c0",
@@ -557,7 +557,7 @@
     "test/sudoku/GuiLocalizationProbe.java": "e74b127e8a0fa65e8b3b3da92bc3e02148e627c154c71ce5e53392438be6e243",
     "test/sudoku/HintInteractionProbe.java": "b594aacc5c5660407395fcff44f960e1bb5f4f8cefe6473fff6ec8201b9c41f8",
     "test/sudoku/IdleSessionRecoveryProbe.java": "f78cf11c10ea10179ab8eebb4bfd13047c1044fdcb3d5159f2d23bea840fd498",
-    "test/sudoku/ImmediateMappedClickProbe.java": "9ba89be589ad5f6d56b99506abc4ea90e650d462cba9575dcbcf75bf91ffccd7",
+    "test/sudoku/ImmediateMappedClickProbe.java": "9a6f01cb1dff83073c5810619ab9388844ef3cf80a0da550498ca25b0862edd7",
     "test/sudoku/InteractionSpeedBenchmark.java": "9f6d9cddc853c396ed27b13baa0cc19d269151da27fc17bd802a7515c4e3243e",
     "test/sudoku/InteractionSpeedGestureProbe.java": "d9f0cdb6bd31537350359c19cd973bc5885d7f26693d539e340b4016c1f25381",
     "test/sudoku/KeyboardHelpDialogProbe.java": "fc119faeb287756a9d48c7b90c623454c25e769482bdd99d02b5901d7f41461c",
@@ -666,5 +666,6 @@
     "test/telemetry/test_save_preflight.py": "e2005c2618c6ef4e4f67ed08cf286e980e7481e9c3c97e1a75be5b58092c3289",
     "test/telemetry/test_save_trace_summary.py": "b0aa1dd871459eb7ff18089177fd0c2880514599547eee6626342a6e82fec0b1",
     "AGENTS.md": "aee5dbe51223ad898041de56cf09b3b9a953ad6e3a8b48081d66627546628aaa"
-  }
+  },
+  "updated_utc": "2026-10-10T04:27:54.522420+00:00"
 }
