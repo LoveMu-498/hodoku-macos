@@ -1,21 +1,33 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 import java.awt.*;import java.awt.image.BufferedImage;import java.nio.file.*;import java.lang.reflect.*;import javax.imageio.ImageIO;
 import static sudoku.GroupedChainTransactionProbe.*;
 import static sudoku.DoodleHypothesisCompositionProbe.*;
 /** R2C4 regression: OR start identity never overpaints actual source segments. */
 public final class DoodleOrthogonalUiProbe {
- static BufferedImage paint(){BufferedImage image=new BufferedImage(p.getWidth(),p.getHeight(),BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();p.paint(g);g.dispose();return image;}
+ static final int DENSITY=2; // Match the native Retina display used for macOS acceptance.
+ static BufferedImage paint(){BufferedImage image=new BufferedImage(p.getWidth()*DENSITY,p.getHeight()*DENSITY,BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();g.scale(DENSITY,DENSITY);p.paint(g);g.dispose();return image;}
  static BufferedImage isolatedComposite(DoodleStroke base)throws Exception{
-  BufferedImage image=new BufferedImage(p.getWidth(),p.getHeight(),BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();
-  g.setColor(Color.WHITE);g.fillRect(0,0,image.getWidth(),image.getHeight());g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
-  Method m=SudokuPanel.class.getDeclaredMethod("drawDoodleComposite",Graphics2D.class,DoodleStroke.class,java.util.List.class,int.class,int.class);m.setAccessible(true);m.invoke(p,g,base,ink(),image.getWidth(),image.getHeight());g.dispose();return image;
+  BufferedImage image=new BufferedImage(p.getWidth()*DENSITY,p.getHeight()*DENSITY,BufferedImage.TYPE_INT_RGB);Graphics2D g=image.createGraphics();g.scale(DENSITY,DENSITY);
+  g.setColor(Color.WHITE);g.fillRect(0,0,p.getWidth(),p.getHeight());g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
+  Method m=SudokuPanel.class.getDeclaredMethod("drawDoodleComposite",Graphics2D.class,DoodleStroke.class,java.util.List.class,int.class,int.class);m.setAccessible(true);m.invoke(p,g,base,ink(),p.getWidth(),p.getHeight());g.dispose();return image;
  }
  static void colored(int cell,int digit,int kind,int group,Color color)throws Exception{
   Method m=SudokuPanel.class.getDeclaredMethod("toggleCandidateHypothesisMark",int.class,int.class,int.class,int.class,Color.class);m.setAccessible(true);m.invoke(p,cell,digit,kind,group,color);
  }
  static boolean green(int rgb){Color c=new Color(rgb);return c.getGreen()>120&&c.getGreen()-c.getRed()>35&&c.getGreen()-c.getBlue()>25;}
  static boolean blueSelection(int rgb){Color c=new Color(rgb);return c.getRed()<120&&c.getGreen()>40&&c.getGreen()<175&&c.getBlue()>160;}
- static int count(BufferedImage im,Point q,Color color,int radius){int n=0;for(int y=q.y-radius;y<=q.y+radius;y++)for(int x=q.x-radius;x<=q.x+radius;x++)if(color.equals(new Color(0,215,45))?green(im.getRGB(x,y)):color.equals(new Color(0x1769ff))?blueSelection(im.getRGB(x,y)):(im.getRGB(x,y)&0xffffff)==(color.getRGB()&0xffffff))n++;return n;}
+ static boolean sourceColor(int rgb,Color source){Color c=new Color(rgb);
+  // A glyph-centered subpixel X may have antialiased source pixels throughout
+  // a short segment. Require its strong source hue, then compare those pixels
+  // exactly across state changes below, rather than requiring opaque pixels.
+  if(Color.RED.equals(source))return c.getRed()>195&&c.getGreen()<85&&c.getBlue()<85;
+  if(Color.BLUE.equals(source))return c.getBlue()>195&&c.getRed()<85&&c.getGreen()<85;
+  if(Color.MAGENTA.equals(source))return c.getRed()>195&&c.getBlue()>195&&c.getGreen()<85;
+  return (rgb&0xffffff)==(source.getRGB()&0xffffff);
+ }
+ static int count(BufferedImage im,Point q,Color color,int radius){int n=0;for(int y=(q.y-radius)*DENSITY;y<=(q.y+radius)*DENSITY;y++)for(int x=(q.x-radius)*DENSITY;x<=(q.x+radius)*DENSITY;x++)if(color.equals(new Color(0,215,45))?green(im.getRGB(x,y)):color.equals(new Color(0x1769ff))?blueSelection(im.getRGB(x,y)):sourceColor(im.getRGB(x,y),color))n++;return n;}
  public static void main(String[]args)throws Exception{System.setProperty("apple.awt.UIElement","true");try{edt(()->{
   initialize();Path out=Paths.get(System.getProperty("hodoku.probe.output","/tmp/hodoku-orthogonal-ui"));Files.createDirectories(out);
   for(int size:new int[]{630,1134,1620})for(int kind:new int[]{1,2})for(int level=0;level<4;level++){
@@ -30,15 +42,15 @@ public final class DoodleOrthogonalUiProbe {
    check(ink().stream().anyMatch(m -> m.getAnchorCell()==12&&m.getAnchorDigit()==7&&m.isConclusionOutlined()),"Command selection missing");
    for(Color c:new Color[]{Color.RED,Color.BLUE,Color.MAGENTA,new Color(0,215,45),new Color(0x1769ff)})
     check(count(selected,q,c,half+5)>2,"orthogonal state color missing: "+c+" size="+size+" level="+level+" kind="+kind);
-   int newlyBlue=0;for(int y=q.y-half-5;y<=q.y+half+5;y++)for(int x=q.x-half-5;x<=q.x+half+5;x++)
+   int newlyBlue=0;for(int y=(q.y-half-5)*DENSITY;y<=(q.y+half+5)*DENSITY;y++)for(int x=(q.x-half-5)*DENSITY;x<=(q.x+half+5)*DENSITY;x++)
     if(blueSelection(selected.getRGB(x,y))&&!blueSelection(before.getRGB(x,y)))newlyBlue++;
    check(newlyBlue>2,"Command did not add distinguishable blue pixels");
    // Only start state is toggled; source colors and selection must remain pixel-identical within the ink.
    BufferedImage isolated=isolatedComposite(find(12,7,kind,0));start.setHypothesisStart(false);BufferedImage without=isolatedComposite(find(12,7,kind,0));start.setHypothesisStart(true);
-   int greenChanged=0;for(int y=q.y-half-8;y<=q.y+half+8;y++)for(int x=q.x-half-8;x<=q.x+half+8;x++){
-    if(green(isolated.getRGB(x,y))&&!green(without.getRGB(x,y))){greenChanged++;check(Math.abs(x-q.x)<=half+8&&Math.abs(y-q.y)<=half+8,"start contour exceeded close-fitting ink envelope");}
+   int greenChanged=0;for(int y=(q.y-half-8)*DENSITY;y<=(q.y+half+8)*DENSITY;y++)for(int x=(q.x-half-8)*DENSITY;x<=(q.x+half+8)*DENSITY;x++){
+    if(green(isolated.getRGB(x,y))&&!green(without.getRGB(x,y))){greenChanged++;check(Math.abs(x-q.x*DENSITY)<=(half+8)*DENSITY&&Math.abs(y-q.y*DENSITY)<=(half+8)*DENSITY,"start contour exceeded close-fitting ink envelope");}
     for(Color c:new Color[]{Color.RED,Color.BLUE,Color.MAGENTA,new Color(0x1769ff)})
-     if((without.getRGB(x,y)&0xffffff)==(c.getRGB()&0xffffff))check(isolated.getRGB(x,y)==without.getRGB(x,y),"start outline covered ink or selected blue");
+     if(sourceColor(without.getRGB(x,y),c))check(isolated.getRGB(x,y)==without.getRGB(x,y),"start outline covered ink or selected blue");
    }
    check(greenChanged>2,"start state invisible");
    if(size==1134&&level==1)ImageIO.write(selected,"png",out.resolve("R2C4-"+(kind==1?"circle":"cross")+"-all-three-states.png").toFile());

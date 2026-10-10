@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with HoDoKu. If not, see <http://www.gnu.org/licenses/>.
  */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import generator.BackgroundGeneratorThread;
@@ -54,6 +55,23 @@ import java.util.logging.Logger;
  */
 
 public final class Options {
+	/** Solver-local overrides never become persisted preferences or affect concurrent solvers. */
+	private static final ThreadLocal<Boolean> TEMPLATE_CHECK_OVERRIDE = new ThreadLocal<Boolean>();
+
+	public static final class TemplateCheckScope implements AutoCloseable {
+		private final Thread owner = Thread.currentThread();
+		private final Boolean previous = TEMPLATE_CHECK_OVERRIDE.get();
+		private boolean closed;
+		private TemplateCheckScope(boolean enabled) { TEMPLATE_CHECK_OVERRIDE.set(enabled); }
+		@Override public void close() {
+			if (closed) return;
+			if (Thread.currentThread() != owner) throw new IllegalStateException("Restore solver options on their owner thread");
+			closed = true;
+			if (previous == null) TEMPLATE_CHECK_OVERRIDE.remove(); else TEMPLATE_CHECK_OVERRIDE.set(previous);
+		}
+	}
+
+	public static TemplateCheckScope withTemplateChecks(boolean enabled) { return new TemplateCheckScope(enabled); }
 
 	public static final String FILE_NAME = "hodoku.hcfg";
 	private static final ProgressComparator progressComparator = new ProgressComparator();
@@ -845,6 +863,7 @@ public final class Options {
 		while (history.size() > limit) {
 			history.remove(history.size() - 1);
 		}
+		if (this == instance) SettingsPersistence.requestSave();
 	}
 
 	/**
@@ -1132,6 +1151,13 @@ public final class Options {
 
 	/** Writes a configuration with atomic replacement and one backup. */
 	public void writeOptionsSafely(final File file) throws IOException {
+		SettingsPersistence.capture(this).saveTo(file);
+	}
+
+	/** Called only with a detached settings graph by SettingsPersistence. */
+	void writeSnapshotSafely(final File file) throws IOException {
+		try(SaveTrace.Operation operation=SaveTrace.operation("settings_write")) {
+		try {
 		Logger.getLogger(Options.class.getName()).log(Level.INFO, "Writing options to {0}", file.getPath());
 		AtomicFileIO.write(file, new AtomicFileIO.FileAction() {
 			@Override
@@ -1143,7 +1169,9 @@ public final class Options {
 			public void run(File temporary) throws Exception {
 				decodeOptions(temporary);
 			}
-		});
+		},Options.class);
+		}catch(IOException|RuntimeException|Error failure){operation.outcome("failed");throw failure;}
+		}
 	}
 
 	public static void readOptions() {
@@ -1281,7 +1309,7 @@ public final class Options {
 			return null;
 		}
 		try {
-			return decodeOptions(file);
+			return SettingsPersistence.read(file);
 		} catch (IOException ex) {
 			Logger.getLogger(Options.class.getName()).log(Level.WARNING,
 					"Unable to read options from " + file.getPath(), ex);
@@ -1297,7 +1325,7 @@ public final class Options {
 			out.setExceptionListener(new java.beans.ExceptionListener() {
 				@Override
 				public void exceptionThrown(Exception ex) {
-					failure[0] = ex;
+					if (failure[0] == null) failure[0] = ex; else if (failure[0] != ex) failure[0].addSuppressed(ex);
 				}
 			});
 			out.writeObject(options);
@@ -1311,15 +1339,17 @@ public final class Options {
 		}
 	}
 
-	private static Options decodeOptions(File file) throws IOException {
+	static Options decodeOptions(File file) throws IOException {
 		XMLDecoder in = null;
+        AtomicFileIO.CheckingInput input=null;
 		final Exception[] failure = new Exception[1];
 		try {
-			in = new XMLDecoder(new BufferedInputStream(new FileInputStream(file)));
+            input=new AtomicFileIO.CheckingInput(file);
+			in = new XMLDecoder(new BufferedInputStream(input));
 			in.setExceptionListener(new java.beans.ExceptionListener() {
 				@Override
 				public void exceptionThrown(Exception ex) {
-					failure[0] = ex;
+					if (failure[0] == null) failure[0] = ex; else if (failure[0] != ex) failure[0].addSuppressed(ex);
 				}
 			});
 			Object decoded = in.readObject();
@@ -1329,6 +1359,7 @@ public final class Options {
 			if (failure[0] != null) {
 				throw new IOException("Unable to decode options", failure[0]);
 			}
+            AtomicFileIO.rememberValid(file,Options.class,input);
 			return (Options) decoded;
 		} catch (FileNotFoundException ex) {
 			throw ex;
@@ -1337,7 +1368,7 @@ public final class Options {
 		} finally {
 			if (in != null) {
 				in.close();
-			}
+			} else if(input!=null)input.close();
 		}
 	}
 
@@ -1933,7 +1964,9 @@ public final class Options {
 	}
 
 	public boolean isCheckTemplates() {
-		return checkTemplates;
+		// Detached persistence beans always expose their stored value, even on a solver thread.
+		Boolean override = this == instance ? TEMPLATE_CHECK_OVERRIDE.get() : null;
+		return override == null ? checkTemplates : override.booleanValue();
 	}
 
 	public void setCheckTemplates(boolean checkTemplates) {

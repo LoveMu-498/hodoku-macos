@@ -3,10 +3,10 @@
  *
  * This file is part of HoDoKu and is licensed under GPL-3.0-or-later.
  */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.Color;
-import java.util.ArrayList;
 import java.util.List;
 
 /** Freehand points use panel fractions; candidate-bound points use cell-size offsets from the native candidate center. */
@@ -24,8 +24,15 @@ public final class DoodleStroke {
     private int hypothesisConditionId;
     private int hypothesisGroupKind;
     private int conclusionSourceMask;
+	/** Captured source ink is read-only evidence, never a current branch mark. */
+	private boolean proofOnly;
+	/** Puzzle-local link between an adopted start set and its captured source ink. */
+	private int derivedSourceId;
+    /** Presentation metadata in replay snapshots; never an authored premise. */
+    private boolean contradictionWitness;
+    private boolean refutationResult;
 	private float widthFactor;
-	private List<DoodlePoint> points = new ArrayList<DoodlePoint>();
+	private List<DoodlePoint> points = new DoodlePoints();
 
 	public DoodleStroke() {
 	}
@@ -69,6 +76,14 @@ public final class DoodleStroke {
     public void setHypothesisGroupKind(int value) { hypothesisGroupKind = value >= 0 && value <= 2 ? value : 0; }
     public int getConclusionSourceMask() { return conclusionSourceMask; }
     public void setConclusionSourceMask(int value) { conclusionSourceMask = value & 63; }
+	public boolean isProofOnly() { return proofOnly; }
+	public void setProofOnly(boolean value) { proofOnly = value; }
+	public int getDerivedSourceId() { return derivedSourceId; }
+	public void setDerivedSourceId(int value) { derivedSourceId = Math.max(0, value); }
+    public boolean isContradictionWitness() { return contradictionWitness; }
+    public void setContradictionWitness(boolean value) { contradictionWitness = value; }
+    public boolean isRefutationResult() { return refutationResult; }
+    public void setRefutationResult(boolean value) { refutationResult = value; }
 
 	public Color getColor() {
 		return color;
@@ -91,7 +106,31 @@ public final class DoodleStroke {
 	}
 
 	public void setPoints(List<DoodlePoint> points) {
-		this.points = points == null ? new ArrayList<DoodlePoint>() : points;
+		this.points = points == null ? new DoodlePoints() : points;
+	}
+
+	/** Primitive access avoids allocating compatibility point objects during paint and encoding. */
+	public int pointCount() { return points.size(); }
+	public double pointX(int index) { return points instanceof DoodlePoints ? ((DoodlePoints)points).x(index) : points.get(index).getX(); }
+	public double pointY(int index) { return points instanceof DoodlePoints ? ((DoodlePoints)points).y(index) : points.get(index).getY(); }
+	public void addPoint(double x, double y) {
+		if (points instanceof DoodlePoints) ((DoodlePoints)points).append(x, y);
+		else points.add(new DoodlePoint(x, y));
+	}
+	public void setPoint(int index, double x, double y) {
+		if (points instanceof DoodlePoints) ((DoodlePoints)points).setCoordinates(index, x, y);
+		else { DoodlePoint point = points.get(index); point.setX(x); point.setY(y); }
+	}
+	public DoodleCoordinates coordinateSnapshot() {
+		if (points instanceof DoodlePoints) return ((DoodlePoints)points).snapshot();
+		// Caller-supplied mutable lists keep their legacy alias semantics, so cannot be shared safely.
+		double[] values = new double[points.size() * 2];
+		for (int i = 0; i < points.size(); i++) { values[i * 2] = pointX(i); values[i * 2 + 1] = pointY(i); }
+		return new DoodleCoordinates(values, points.size());
+	}
+	public void replaceCoordinates(DoodleCoordinates coordinates) {
+		if (coordinates == null) throw new NullPointerException("coordinates");
+		points = new DoodlePoints(coordinates);
 	}
 
 	public DoodleStroke copy() {
@@ -104,9 +143,11 @@ public final class DoodleStroke {
         copy.hypothesisConditionId = hypothesisConditionId;
         copy.hypothesisGroupKind = hypothesisGroupKind;
         copy.conclusionSourceMask = conclusionSourceMask;
-		for (DoodlePoint point : points) {
-			copy.getPoints().add(new DoodlePoint(point.getX(), point.getY()));
-		}
+		copy.proofOnly = proofOnly;
+		copy.derivedSourceId = derivedSourceId;
+        copy.contradictionWitness = contradictionWitness;
+        copy.refutationResult = refutationResult;
+		copy.replaceCoordinates(coordinateSnapshot());
 		return copy;
 	}
 }

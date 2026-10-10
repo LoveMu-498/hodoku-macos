@@ -3,6 +3,7 @@
  *
  * This file is part of HoDoKu and is licensed under GPL-3.0-or-later.
  */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.Toolkit;
@@ -14,11 +15,11 @@ import javax.sound.sampled.FloatControl;
 import javax.sound.sampled.LineEvent;
 import javax.sound.sampled.LineListener;
 
-/** Optional, non-blocking feedback for explicit clipboard and filter actions. */
+/** Optional, non-blocking feedback for explicit user actions. */
 final class OperationSoundPlayer {
 
 	enum Sound {
-		COPY("Glass.aiff"), PASTE("Pop.aiff"), UNAVAILABLE("Purr.aiff"), NO_RESULTS("Tink.aiff");
+		COPY("Glass.aiff"), PASTE("Pop.aiff"), UNAVAILABLE("Purr.aiff"), NO_RESULTS("Tink.aiff"), CLEAR("Funk.aiff");
 
 		private final String fileName;
 
@@ -41,7 +42,7 @@ final class OperationSoundPlayer {
 		Thread player = new Thread(new Runnable() {
 			@Override
 			public void run() {
-				if (!playSystemSound(sound) && sound == Sound.UNAVAILABLE) {
+				if (!playSystemSound(sound) && (sound == Sound.UNAVAILABLE || sound == Sound.CLEAR)) {
 					Toolkit.getDefaultToolkit().beep();
 				}
 			}

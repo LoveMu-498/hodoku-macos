@@ -3,6 +3,7 @@
  *
  * This file is part of HoDoKu and is licensed under GPL-3.0-or-later.
  */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.BasicStroke;
@@ -36,6 +37,54 @@ final class ToolbarIcons {
 	static Icon xyFilter() { return new CandidateCountIcon("y"); }
 	static Icon xyzFilter() { return new CandidateCountIcon("yz"); }
 	static Icon newGame() { return new NewGameIcon(); }
+	static Icon doodleErasure() { return new DoodleErasureIcon(); }
+
+	/** The same ink and eraser footprint show local versus whole-stroke fading. */
+	private static final class DoodleErasureIcon implements Icon {
+		@Override public int getIconWidth() { return SIZE; }
+		@Override public int getIconHeight() { return SIZE; }
+
+		@Override
+		public void paintIcon(Component component, Graphics graphics, int x, int y) {
+			Graphics2D g = (Graphics2D) graphics.create();
+			try {
+				// The lower-right eraser adds visual weight; nudge the shared drawing up and left.
+				prepare(g); g.translate(x - 1, y - 2);
+				boolean whole = component instanceof AbstractButton
+						&& ((AbstractButton) component).isSelected();
+				SudokuAppearancePalette palette = SudokuAppearancePalette.forRendering(false);
+				g.setColor(whole ? palette.getControlSelectionForeground() : palette.getPrimaryForeground());
+				float opacity = component != null && !component.isEnabled() ? 0.55f : 1f;
+				java.awt.geom.Path2D.Double ink = new java.awt.geom.Path2D.Double();
+				ink.moveTo(4, 21);
+				ink.curveTo(5, 10, 9, 7, 12, 12);
+				ink.curveTo(16, 18, 7, 28, 10, 24);
+				ink.curveTo(14, 20, 16, 5, 21, 9);
+				ink.curveTo(26, 13, 20, 26, 28, 22);
+				java.awt.Shape eraser = new java.awt.geom.Ellipse2D.Double(16, 15, 14, 14);
+				g.setStroke(STROKE);
+				if (!whole) {
+					java.awt.geom.Area outside = new java.awt.geom.Area(new java.awt.Rectangle(0, 0, SIZE, SIZE));
+					outside.subtract(new java.awt.geom.Area(eraser));
+					Graphics2D remaining = (Graphics2D) g.create();
+					try {
+						remaining.clip(outside); remaining.setComposite(java.awt.AlphaComposite.SrcOver.derive(opacity));
+						remaining.draw(ink);
+					} finally { remaining.dispose(); }
+				}
+				Graphics2D pending = (Graphics2D) g.create();
+				try {
+					if (!whole) pending.clip(eraser);
+					pending.setComposite(java.awt.AlphaComposite.SrcOver.derive(opacity * 0.25f));
+					pending.draw(ink);
+				} finally { pending.dispose(); }
+				// The footprint stays clear in both strategies; only the ink shows the erasure.
+				g.setComposite(java.awt.AlphaComposite.SrcOver.derive(opacity));
+				g.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[] {2f, 2.5f}, 0f));
+				g.draw(eraser);
+			} finally { g.dispose(); }
+		}
+	}
 
 	static Image swapColor() {
 		BufferedImage image = smallCanvas();

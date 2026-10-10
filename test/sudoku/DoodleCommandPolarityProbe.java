@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 import java.awt.*;import java.awt.event.*;import java.awt.image.*;import java.lang.reflect.*;import java.util.*;
 import static sudoku.GroupedChainTransactionProbe.*;
@@ -9,7 +11,8 @@ public final class DoodleCommandPolarityProbe {
  static void state(boolean circle,boolean cross)throws Exception{check(outlined(0,1,1,0)==circle&&outlined(0,1,2,0)==cross,"wrong selected polarity "+circle+"/"+cross);}
  public static void main(String[] args)throws Exception{System.setProperty("apple.awt.UIElement","true");try{edt(()->{
   f=new MainFrame(null);p=f.getSudokuPanel();p.setSudoku((String)null);p.getSudoku().set(GroupedChainProbe.blank());p.setShowCandidates(true);p.setAnnotationTool(AnnotationTool.DOODLE);p.getCellZoomPanel().selectPaletteGroup(0);p.setSize(810,810);p.paint(new BufferedImage(810,810,1).getGraphics());Point a=ChainOriginProbe.candidate(0,1);int cmd=InputEvent.META_DOWN_MASK;
-  mark(0,1,1,0);mark(0,1,2,0);String board=TechniqueStepCatalog.createSignature(p.getSudoku());
+  mark(0,1,1,0);mark(0,1,2,0);p.cancelDoodleHypothesisStarts(); // Manual selection without an assumption origin.
+  String board=TechniqueStepCatalog.createSignature(p.getSudoku());
   click(1,cmd,a);state(true,false);p.flushMappedClick();click(1,cmd,a);state(false,false);p.flushMappedClick();
   int before=((Stack<?>)read("doodleUndoStack")).size();click(1,cmd,a);state(true,false);click(1,cmd,a);state(false,true);check(((Stack<?>)read("doodleUndoStack")).size()==before+1,"double left extra undo");
   p.undoCurrentAnnotation();state(false,false);p.redoCurrentAnnotation();state(false,true);

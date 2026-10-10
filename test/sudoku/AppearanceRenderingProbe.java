@@ -3,12 +3,16 @@
  *
  * This file is part of HoDoKu and is licensed under GPL-3.0-or-later.
  */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
 import java.lang.reflect.Field;
 import javax.swing.Icon;
@@ -107,19 +111,14 @@ public final class AppearanceRenderingProbe {
 					SudokuPanel lightPanel = lightFrame.getSudokuPanel();
 					lightPanel.setSize(900, 900);
 					lightPanel.setSudoku(FILTER_PUZZLE);
-					lightPanel.clearSelection(0);
-					BufferedImage lightBoard = new BufferedImage(900, 900,
-							BufferedImage.TYPE_INT_RGB);
-					Graphics2D lightBoardGraphics = lightBoard.createGraphics();
-					lightPanel.paint(lightBoardGraphics);
-					lightBoardGraphics.dispose();
-					int lightCellWidth = lightPanel.getX(0, 1) - lightPanel.getX(0, 0);
-					require(containsColor(lightBoard, lightPanel.getX(0, 0), lightPanel.getY(0, 0),
-							lightCellWidth, lightCellWidth, light.getActiveCellColor()),
-							"light board did not paint the brighter selection accent");
-					require(containsColor(lightBoard, lightPanel.getX(0, 0), lightPanel.getY(0, 0),
-							lightCellWidth, lightCellWidth, light.getActiveCellBorderColor()),
-							"light board selection lost its one-pixel contrast edge");
+                    lightPanel.setAnnotationTool(AnnotationTool.DEFAULT_MOUSE);
+                    lightPanel.setShowCandidates(true);
+                    int lightSelectionCell = findCandidateCell(lightPanel)[0];
+                    lightPanel.clearSelection(lightSelectionCell == 0 ? 1 : 0);
+                    BufferedImage lightUnselected = boardImage(lightPanel);
+                    lightPanel.clearSelection(lightSelectionCell);
+                    requireSelectionCorners(lightPanel, lightUnselected, boardImage(lightPanel),
+                            lightSelectionCell, light, true);
 					lightFrame.dispose();
 					lightFrame = null;
 
@@ -206,12 +205,17 @@ public final class AppearanceRenderingProbe {
 					require(new Color(screen.getRGB(sampleX, sampleY)).equals(dark.getDefaultCellColor()),
 							"on-screen Sudoku cell did not use the dark palette");
 					Color coloredCell = new Color(170, 160, 230);
-					Color readableCandidate = dark.getReadableForeground(coloredCell, dark.getCandidateColor());
 					panel.handleColoring(0, 0, -1, coloredCell);
 					screenGraphics = screen.createGraphics();
 					panel.paint(screenGraphics);
 					screenGraphics.dispose();
 					int cellWidth = panel.getX(0, 1) - panel.getX(0, 0);
+                    Color displayedCell = new Color(screen.getRGB(sampleX, sampleY));
+                    Color readableCandidate = dark.getReadableForeground(displayedCell, dark.getCandidateColor());
+                    require(!displayedCell.equals(dark.getDefaultCellColor()) && !displayedCell.equals(coloredCell),
+                            "cell coloring did not preserve a distinct, subordinate background tint");
+                    require(contrastRatio(readableCandidate, displayedCell) >= 4.5,
+                            "candidate text lacks contrast against the actually painted cell tint");
 					require(containsColor(screen, panel.getX(0, 0), panel.getY(0, 0), cellWidth, cellWidth,
 							readableCandidate),
 							"colored cell candidates retained an unreadable dark-gray foreground");
@@ -221,7 +225,7 @@ public final class AppearanceRenderingProbe {
 					int filteredRow = Sudoku2.getRow(filteredCell[0]);
 					int filteredCol = Sudoku2.getCol(filteredCell[0]);
 					Color userCellColor = new Color(170, 160, 230);
-					Color markerColor = dark.getFilterMarkerColor(userCellColor);
+					Color markerColor;
 					panel.setShowCandidates(true);
 					panel.setShowHintCellValue(filteredCell[1]);
 					panel.checkIsShowInvalidOrPossibleCells();
@@ -232,24 +236,28 @@ public final class AppearanceRenderingProbe {
 					screenGraphics.dispose();
 					int filteredX = panel.getX(filteredRow, filteredCol);
 					int filteredY = panel.getY(filteredRow, filteredCol);
+                    Color filteredBackground = new Color(screen.getRGB(filteredX + cellWidth / 2, filteredY + cellWidth / 3));
+                    markerColor = dark.getFilterMarkerColor(filteredBackground);
+                    require(contrastRatio(markerColor, filteredBackground) >= 3.0,
+                            "candidate filter marker lacks contrast against the actual colored cell");
 					require(new Color(screen.getRGB(filteredX + 2, filteredY + 2)).equals(markerColor),
 							"candidate filter marker did not remain visible over a user-colored cell");
 					require(!new Color(screen.getRGB(filteredX + cellWidth / 6, filteredY + cellWidth / 6))
 							.equals(markerColor),
 							"candidate filter marker intruded into a candidate position");
 
+                    BufferedImage filteredUnselected = boardImage(panel);
 					panel.clearSelection(filteredRow, filteredCol);
 					screenGraphics = screen.createGraphics();
 					panel.paint(screenGraphics);
 					screenGraphics.dispose();
 					int fullFrameSize = Math.max(1,
 							(int) (cellWidth * Options.getInstance().getCursorFrameSize()));
-					require(containsColor(screen, filteredX, filteredY, cellWidth, cellWidth,
-							dark.getActiveCellColor()),
-							"selected filtered cell lost its yellow outer frame");
+                    requireSelectionCorners(panel, filteredUnselected, screen, filteredCell[0], dark, false);
+                    requireBoxSourcesOverFilter(panel, filteredUnselected, screen, filteredCell[0]);
 					require(containsColor(screen, filteredX, filteredY, cellWidth,
 							fullFrameSize + 2, markerColor),
-							"selected filtered cell did not place its green marker inside the existing frame band");
+							"selected filtered cell lost its independent green marker in the edge band");
 					require(!containsColor(screen, filteredX + fullFrameSize + 2,
 							filteredY + fullFrameSize + 2, cellWidth - 2 * fullFrameSize - 4,
 							cellWidth - 2 * fullFrameSize - 4, markerColor),
@@ -416,6 +424,146 @@ public final class AppearanceRenderingProbe {
 		System.out.println("Appearance rendering checks passed");
 		System.exit(0);
 	}
+
+    private static BufferedImage boardImage(SudokuPanel panel) {
+        return GlyphBackgroundImage.capture(panel, 900, 900);
+    }
+
+    private static void requireSelectionCorners(SudokuPanel panel, BufferedImage unselected,
+            BufferedImage selected, int cell, SudokuAppearancePalette palette, boolean onlyCorners) throws Exception {
+        String output = System.getProperty("hodoku.probe.output");
+        if (output != null) {
+            java.nio.file.Files.createDirectories(java.nio.file.Paths.get(output));
+            String fixture = (palette.isDark() ? "dark" : "light") + "-selection-" + cell;
+            javax.imageio.ImageIO.write(unselected, "png", new java.io.File(output, fixture + "-before.png"));
+            javax.imageio.ImageIO.write(selected, "png", new java.io.File(output, fixture + "-after.png"));
+        }
+        int size=panel.getX(0,1)-panel.getX(0,0), x=panel.getX(cell/9,cell%9), y=panel.getY(cell/9,cell%9);
+        int reach=(int)Math.ceil(size/4.0);
+        for(int sx=0;sx<2;sx++)for(int sy=0;sy<2;sy++) {
+            int left=x+(sx==0?0:size-reach),top=y+(sy==0?0:size-reach), pixels=0;
+            for(int yy=top;yy<top+reach;yy++)for(int xx=left;xx<left+reach;xx++)
+                if(unselected.getRGB(xx,yy)!=selected.getRGB(xx,yy)
+                        &&new Color(selected.getRGB(xx,yy)).equals(palette.getCandidateColor()))pixels++;
+            require(pixels>=2,"selected cell lost a neutral corner: cell="+cell+", corner="+sx+","+sy+", pixels="+pixels);
+        }
+        if(onlyCorners)for(int yy=1;yy<size;yy++)for(int xx=1;xx<size;xx++) {
+            boolean corner=(xx<reach||xx>=size-reach)&&(yy<reach||yy>=size-reach);
+            if(!corner)require(unselected.getRGB(x+xx,y+yy)==selected.getRGB(x+xx,y+yy),
+                    "ordinary selection painted outside its independent corner positions");
+        }
+        requireCandidateGlyphsUnchanged(panel,unselected,selected,cell);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void requireBoxSourcesOverFilter(SudokuPanel panel, BufferedImage unselected,
+            BufferedImage withoutBoxes, int cell) throws Exception {
+        if (!(withoutBoxes instanceof GlyphBackgroundImage)) {
+            BufferedImage captured=boardImage(panel);
+            require(imagesEqual(withoutBoxes,captured),"Box baseline changed before paired background capture");
+            withoutBoxes=captured;
+        }
+        java.util.List<SudokuSet> groups=readField(panel,"boxReasoningGroups",java.util.List.class);
+        boolean[] existed=new boolean[groups.size()];
+        for(int group=0;group<groups.size();group++) { existed[group]=groups.get(group).contains(cell);groups.get(group).add(cell); }
+        BufferedImage all=boardImage(panel);
+        int size=panel.getX(0,1)-panel.getX(0,0),x=panel.getX(cell/9,cell%9),y=panel.getY(cell/9,cell%9);
+        SudokuAppearancePalette palette=SudokuAppearancePalette.forRendering(false);
+        Color[] sourceColors=Options.getInstance().getColoringColors();
+        try {
+            require(groups.size()==6,"filter/M fixture lost one of the six Box sources");
+            for(int group=0;group<groups.size();group++) {
+                // Recolor one source without removing its cells: removing a group can
+                // redistribute all shared-edge dashes and misattribute their pixels.
+                Color[] changed=sourceColors.clone();changed[group*2]=palette.isDark()?Color.WHITE:Color.BLACK;
+                BufferedImage recolored;
+                try {Options.getInstance().setColoringColors(changed);recolored=boardImage(panel);}
+                finally {Options.getInstance().setColoringColors(sourceColors);}
+                int band=Math.max(4,(int)Math.ceil(size*.12));
+                for(int side=0;side<4;side++) {
+                    int positions=0;
+                    for(int along=3;along<size-3;along++) {
+                        boolean visible=false;
+                        for(int inward=0;inward<=band;inward++) {
+                            int xx=side==2?x+inward:side==3?x+size-inward:x+along;
+                            int yy=side==0?y+inward:side==1?y+size-inward:y+along;
+                            Color pixel=new Color(all.getRGB(xx,yy));
+                            if(rgbDistance(pixel,new Color(recolored.getRGB(xx,yy)))>=25
+                                    &&rgbDistance(pixel,new Color(withoutBoxes.getRGB(xx,yy)))>=25) {
+                                visible=true;break;
+                            }
+                        }
+                        if(visible)positions++;
+                    }
+                    require(positions>=3,"filter/M layers hid Box source "+(char)('A'+group)
+                            +" on perimeter side "+side+": visible positions="+positions);
+                }
+            }
+            requireCandidateGlyphsUnchanged(panel,withoutBoxes,all,cell);
+            requireSelectionCorners(panel,unselected,all,cell,palette,false);
+            Color background=new Color(withoutBoxes.getRGB(x+size/2,y+size/3));
+            Color marker=palette.getFilterMarkerColor(background);
+            require(containsColor(all,x,y,size,Math.max(4,(int)Math.ceil(size*.12)),marker),
+                    "six Box sources hid the independent filter marker over the selected colored cell");
+            String output=System.getProperty("hodoku.probe.output");
+            if(output!=null)javax.imageio.ImageIO.write(all,"png",new java.io.File(output,"dark-filter-M-six-Box-sources.png"));
+        } finally { for(int group=0;group<groups.size();group++)if(!existed[group])groups.get(group).remove(cell); }
+    }
+
+    private static void requireCandidateGlyphsUnchanged(SudokuPanel panel, BufferedImage unselected,
+            BufferedImage selected, int cell) throws Exception {
+        // Hiding candidates changes the filter's input data. Instead preserve both complete
+        // paint states and suppress only text, so AA is checked against each actual background.
+        require(unselected instanceof GlyphBackgroundImage, "missing pre-change glyph background");
+        BufferedImage beforeBackground=((GlyphBackgroundImage)unselected).background;
+        BufferedImage afterBackground=selected instanceof GlyphBackgroundImage
+                ? ((GlyphBackgroundImage)selected).background
+                : GlyphBackgroundImage.background(panel,selected.getWidth(),selected.getHeight());
+        int size=panel.getX(0,1)-panel.getX(0,0),x=panel.getX(cell/9,cell%9),y=panel.getY(cell/9,cell%9);
+        Font font=readField(panel,"candidateFont",Font.class);
+        BufferedImage glyphMask=new BufferedImage(unselected.getWidth(),unselected.getHeight(),BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics=glyphMask.createGraphics();graphics.setFont(font);graphics.setColor(Color.WHITE);
+        graphics.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING,java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        FontMetrics metrics=graphics.getFontMetrics();double third=size/3.0;
+        double dx=(third-metrics.stringWidth("8"))/2.0,dy=(third+metrics.getAscent()-metrics.getDescent())/2.0;
+        int protectedPixels=0, edgePixels=0;
+        try {
+            for(int digit:panel.getSudoku().getAllCandidates(cell)) {
+                Rectangle2D bounds=font.createGlyphVector(graphics.getFontRenderContext(),Integer.toString(digit)).getVisualBounds();
+                int gx=x+(int)Math.round(dx+(digit-1)%3*third),gy=y+(int)Math.round(dy+(digit-1)/3*third);
+                graphics.drawString(Integer.toString(digit),gx,gy);
+                int left=(int)Math.floor(gx+bounds.getMinX())-1,right=(int)Math.ceil(gx+bounds.getMaxX())+1;
+                int top=(int)Math.floor(gy+bounds.getMinY())-1,bottom=(int)Math.ceil(gy+bounds.getMaxY())+1;
+                Integer foreground=null;
+                boolean visibleCore=false;
+                for(int yy=top;yy<bottom;yy++)for(int xx=left;xx<right;xx++) {
+                    if((glyphMask.getRGB(xx,yy)>>>24)!=255)continue;
+                    int before=unselected.getRGB(xx,yy),after=selected.getRGB(xx,yy);
+                    require(before==after,"selected corner/filter frame obscured candidate core "+digit+" in cell "+cell);
+                    if(foreground==null)foreground=before;
+                    require(before==foreground.intValue(),"candidate core does not have uniform foreground "+digit);
+                    visibleCore|=before!=beforeBackground.getRGB(xx,yy);
+                    protectedPixels++;
+                }
+                require(foreground!=null && visibleCore,"candidate "+digit+" mask does not cover visible glyph core");
+                for(int yy=top;yy<bottom;yy++)for(int xx=left;xx<right;xx++) {
+                    int alpha=glyphMask.getRGB(xx,yy)>>>24;
+                    if(alpha==0 || alpha==255)continue;
+                    int[] actual={unselected.getRGB(xx,yy),selected.getRGB(xx,yy)};
+                    int[] backgrounds={beforeBackground.getRGB(xx,yy),afterBackground.getRGB(xx,yy)};
+                    for(int state=0;state<2;state++)for(int shift:new int[]{16,8,0}) {
+                        int expected=(alpha*((foreground>>>shift)&255)+(255-alpha)*((backgrounds[state]>>>shift)&255)+127)/255;
+                        int painted=(actual[state]>>>shift)&255;
+                        require(Math.abs(painted-expected)<=2,"candidate "+digit+" AA edge changed in cell "+cell
+                                +" state="+state+" pixel="+xx+","+yy+" alpha="+alpha
+                                +" expected="+expected+" painted="+painted);
+                    }
+                    edgePixels++;
+                }
+            }
+        } finally { graphics.dispose(); }
+        require(protectedPixels>0 && edgePixels>0,"selection safety fixture lacks core or AA glyph coverage");
+    }
 
 	private static BufferedImage printImage(SudokuPanel panel) {
 		BufferedImage image = new BufferedImage(900, 900, BufferedImage.TYPE_INT_RGB);

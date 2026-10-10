@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.*;
@@ -60,8 +62,9 @@ public final class DoodleHypothesisInputRenderingProbe {
         p.handleAnnotationKeyPressed(key(p,KeyEvent.KEY_PRESSED,0));
         check(p.isDoodleHypothesisEntryActive(),"G repeat toggled entry back off");
         p.handleAnnotationToolKeyReleased(key(p,KeyEvent.KEY_RELEASED,0));
-        p.handleAnnotationKeyPressed(key(p,KeyEvent.KEY_PRESSED,0));check(!p.isDoodleHypothesisEntryActive(),"released second G did not toggle off");
+        p.handleAnnotationKeyPressed(key(p,KeyEvent.KEY_PRESSED,0));check(p.isDoodleHypothesisEntryActive(),"second G did not enable entry while held");
         p.handleAnnotationToolKeyReleased(key(p,KeyEvent.KEY_RELEASED,0));
+        check(!p.isDoodleHypothesisEntryActive(),"double G release did not end entry");
         p.handleAnnotationKeyPressed(key(new JTextField(),KeyEvent.KEY_PRESSED,0));check(!p.isDoodleHypothesisEntryActive(),"text G intercepted");
         p.handleAnnotationKeyPressed(key(p,KeyEvent.KEY_PRESSED,InputEvent.META_DOWN_MASK));check(!p.isDoodleHypothesisEntryActive(),"Command G intercepted");
         p.finishDoodleHypothesisEntry();p.getCellZoomPanel().selectPaletteGroup(0);

@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.io.*;
@@ -10,13 +12,18 @@ final class ReplayRecovery {
     ReplayRecovery(Path directory){this.directory=directory;}
     void checkpoint(ReplaySession s,boolean clean)throws IOException{checkpoint(s,clean,false);}
     void checkpoint(ReplaySession s,boolean clean,boolean editing)throws IOException{
+        SaveTrace.io("checkpoint.write",directory.resolve("active.checkpoint"),()->writeCheckpoint(s,clean,editing));
+    }
+    private void writeCheckpoint(ReplaySession s,boolean clean,boolean editing)throws IOException{
         Files.createDirectories(directory);Path temp=Files.createTempFile(directory,"active-",".tmp");
+        IOException primaryFailure=null;
         try{
             try(FileOutputStream file=new FileOutputStream(temp.toFile());DataOutputStream out=new DataOutputStream(file)){
-                out.writeInt(0x48524331);out.writeUTF(s.id);out.writeInt(s.frames().size());out.writeLong(s.elapsedMillis);out.writeBoolean(clean);out.writeBoolean(editing);out.flush();file.getFD().sync();
+                out.writeInt(0x48524331);out.writeUTF(s.id);out.writeInt(s.frameCount());out.writeLong(s.elapsedMillis);out.writeBoolean(clean);out.writeBoolean(editing);out.flush();file.getFD().sync();
             }
             Files.move(temp,directory.resolve("active.checkpoint"),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
-        }finally{Files.deleteIfExists(temp);}
+        }catch(IOException failure){primaryFailure=failure;throw failure;}
+        finally{try{Files.deleteIfExists(temp);}catch(IOException cleanup){if(primaryFailure!=null)primaryFailure.addSuppressed(cleanup);else throw cleanup;}}
     }
     ReplaySession restore()throws IOException{
         Path path=directory.resolve("active.checkpoint");if(!Files.exists(path))return null;
@@ -28,8 +35,8 @@ final class ReplayRecovery {
             ReplaySession s=ReplayStore.read(directory.resolve(id+".hrep"));
             if(s.completed||s.endedAt!=0)return null;
             // A crash between operation commit and checkpoint is safe: committed group wins.
-            if(count>s.frames().size())throw new IOException("Recovery checkpoint is ahead of committed replay");
-            if(count==s.frames().size())s.elapsedMillis=Math.max(s.elapsedMillis,elapsed);
+            if(count>s.frameCount())throw new IOException("Recovery checkpoint is ahead of committed replay");
+            if(count==s.frameCount())s.elapsedMillis=Math.max(s.elapsedMillis,elapsed);
             if(!clean)s.interruption=ReplayText.text("interruption");
             return s;
         }

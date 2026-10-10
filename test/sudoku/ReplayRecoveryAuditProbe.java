@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 import javax.swing.*;
 import java.lang.reflect.*;
@@ -48,10 +50,12 @@ public final class ReplayRecoveryAuditProbe {
     String id=new String(Files.readAllBytes(dir.resolve("prior-id")),"UTF-8");check(!id.equals(r.session().id),"launch continued old attempt");Path old=r.directory().resolve(id+".hrep");
     if(mode.endsWith("retained")){ReplaySession ended=ReplayStore.read(old);check(ended.endedAt>0,"prior not ended");check(ended.elapsedMillis==Long.parseLong(new String(Files.readAllBytes(dir.resolve("prior-elapsed")),"UTF-8")),"closed duration counted: "+ended.elapsedMillis);check(ended.retained,"retention lost");}else check(!Files.exists(old),"unretained orphan survived");
    }else if(mode.equals("sealed")){
-    f.setPuzzle(SOL.substring(0,80)+"0");p.saveState();p.setCell(8,8,9);r.afterAction();check(r.session().completed,"completion failed");Path file=r.directory().resolve(r.session().id+".hrep");byte[] sealed=Files.readAllBytes(file);int bookmarks=r.session().bookmarks().size();p.undo();point("after completion undo");check(r.session().bookmarks().size()==bookmarks,"sealed bookmark changed");check(Arrays.equals(sealed,Files.readAllBytes(file)),"sealed archive rewritten");check(f.getSavePoints().get(0).getSudoku().getValue(80)==0,"ordinary postcompletion savepoint broken");
+    f.setPuzzle(SOL.substring(0,80)+"0");p.saveState();p.setCell(8,8,9);r.afterAction();check(r.session().completed,"completion failed");r.flushPendingSaves();Path file=r.directory().resolve(r.session().id+".hrep");byte[] sealed=Files.readAllBytes(file);int bookmarks=r.session().bookmarks().size();p.undo();point("after completion undo");r.flushPendingSaves();check(r.session().bookmarks().size()==bookmarks,"sealed bookmark changed");check(Arrays.equals(sealed,Files.readAllBytes(file)),"sealed archive rewritten");check(f.getSavePoints().get(0).getSudoku().getValue(80)==0,"ordinary postcompletion savepoint broken");
    }
   }catch(Exception e){throw new RuntimeException(e);}});
-  if(mode.contains("crash"))Runtime.getRuntime().halt(7);
+  // checkpoint/persistLater now enqueue off-EDT writes. Prove the fixture is durable
+  // before abruptly ending its own process; otherwise this tests queue timing.
+  if(mode.contains("crash")){SwingUtilities.invokeAndWait(()->{try{r.flushPendingSaves();}catch(Exception e){throw new RuntimeException(e);}});Runtime.getRuntime().halt(7);}
   }catch(Throwable e){e.printStackTrace();System.exit(1);}finally{if(f!=null)SwingUtilities.invokeAndWait(()->f.dispose());}System.exit(0);
  }
 }

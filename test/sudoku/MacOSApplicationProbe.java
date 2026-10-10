@@ -3,6 +3,7 @@
  *
  * This file is part of HoDoKu and is licensed under GPL-3.0-or-later.
  */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.lang.reflect.InvocationHandler;
@@ -27,6 +28,9 @@ public final class MacOSApplicationProbe {
 		testJdkQuitProxyDispatch();
 		testJdkDesktopRegistration();
 		System.out.println("macOS application bridge checks passed");
+		// Registering native desktop handlers keeps AWT's shutdown thread alive.
+		// This probe has finished its assertions, so do not keep the build waiting.
+		System.exit(0);
 	}
 
 	private static void testPackagedBundleResolution() {

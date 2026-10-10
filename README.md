@@ -15,16 +15,24 @@
 公开源码：[LoveMu-498/hodoku-macos](https://github.com/LoveMu-498/hodoku-macos)。
 下载安装包：[Releases](https://github.com/LoveMu-498/hodoku-macos/releases)。
 
-## 2.3.3 亮点
+## 2.3.4 源码迭代
 
-- T/P/L/S 预览与擦除入口统一，单击立即反馈，双击回退后执行对应动作。
-- 圈叉起点与当前来源多色合成，Command 分别选择圈／叉，Enter 明确应用。
-- 画链退回可继续绘制，单格框选可预览并应用单数结论。
+- 完整会话空闲预存、设置合并与磁盘摘要校验，减少关闭时的重复编码；失败仍提供详情与重试。
+- 精确笔迹与历史共享、紧凑会话 v2；同帧数异常重启保留成功保存的完整批注及存档点。
+- 标注常态保持完整来源色，圈叉字形缓存与身份轮廓、S 共边和 L 字形进一步统一；P 新增整笔擦除策略。
+- 长解说回放保留完整原生文本，链结论转录继续由用户明确确认。
 
-**升级注意：旧 Mac 回放不迁移，首次启动会清理识别出的托管旧记录。请先正常退出旧版，
-保留旧版应用，将需要保留的回放复制到数据目录之外。**
+本次为 PR 源码候选，正式安装包仍以 Releases 为准。
+重笔迹开发成品对照已有明显关闭收益，测量基线与限制见
+[保存性能分析](docs/save-performance.md)，不等于新版 DMG 已完成验收。
 
-[版本与 Bug 修复说明](docs/releases/2.3.3.md) · [快捷键与圈叉指南](docs/annotation-input.md) · [回放与分享指南](docs/replay-sharing.md)
+**升级前正常退出并将整个数据目录备份到目录之外，保留旧版应用。新版会话 v2 与 HMX5/6
+原生尾不能由 2.3.3 完整读取，降级需要升级前备份或隔离目录。**
+既有清理仍仅针对已识别的 UUID 托管旧 Mac envelope v4 及关联 checkpoint；
+本次没有将 2.3.3 的 HRPL3 回放列入清理。
+
+[2.3.4 版本与 Bug 修复说明](docs/releases/2.3.4.md) · [2.3.3 说明](docs/releases/2.3.3.md) ·
+[快捷键与圈叉指南](docs/annotation-input.md) · [回放与分享指南](docs/replay-sharing.md)
 
 ## macOS 分享版
 

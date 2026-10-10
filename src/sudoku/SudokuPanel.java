@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with HoDoKu. If not, see <http://www.gnu.org/licenses/>.
  */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import generator.SudokuGenerator;
@@ -112,7 +113,6 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	private static BufferedImage[] colorKuImagesLarge = new BufferedImage[Sudoku2.UNITS];
 	private static final int DEFAULT_DOUBLE_CLICK_SPEED = 500;
 	private static final Color DOODLE_CONCLUSION_OUTLINE_COLOR = new Color(0x1769FF);
-	private static final float STANDARD_CROSS_SCALE = 0.88f;
 	private static final int DELTA = 5;
 	private static final int DELTA_RAND = 5;
 	private static final int UNIT_HANDLE_SIZE = 20;
@@ -199,6 +199,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	private int deltaRand = DELTA_RAND;
 	private Font valueFont;
 	private Font candidateFont;
+	private DoodleCandidateGlyphLayout doodleCandidateGlyphLayout;
+	private final boolean[] doodleCandidateBold = new boolean[Sudoku2.LENGTH * 10];
 	private int candidateHeight;
 	private Font bigFont;
 	private Font smallFont;
@@ -314,6 +316,11 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	private AnnotationTool activeAnnotationToolToggleOrigin;
 	private boolean applyingAnnotationTool;
 	private boolean annotationToolPointerCaptured;
+    private final java.util.LinkedHashSet<Integer> paletteKeysDown = new java.util.LinkedHashSet<Integer>();
+    private AnnotationTool paletteKeyTool;
+    private int activePaletteKey = KeyEvent.VK_UNDEFINED;
+    private int paletteDeletePointerGroup = -1;
+    private boolean paletteDeletePointerCaptured;
 	private AnnotationTool pendingAnnotationToolRestore;
 	private boolean suppressNextAnnotationPointerRelease;
 	private static final long ANNOTATION_TOOL_HOLD_MILLIS = 250L;
@@ -324,12 +331,20 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     private final Stack<Integer> doodleHypothesisRedoMasks = new Stack<Integer>();
     private int doodleHypothesisEntryMode, doodleHypothesisEntryGroup = -1;
     private boolean doodleHypothesisGDown;
+    private long doodleHypothesisGPressedAt;
+    private boolean doodleHypothesisEntryBeforeG, doodleHypothesisGUsedBoard, doodleHypothesisGDoubleTap;
+    private boolean pendingDoodleHypothesisEntryFinish;
+    private long pendingDoodleHypothesisTapReleasedAt;
+    private int pendingDoodleHypothesisTapGroup = -1;
+    private String pendingDoodleHypothesisTapBoardSignature;
 
 	private final Stack<List<DoodleStroke>> doodleUndoStack = new Stack<List<DoodleStroke>>();
 	private final Stack<List<DoodleStroke>> doodleRedoStack = new Stack<List<DoodleStroke>>();
 	private DoodleStroke activeDoodleStroke;
 	private boolean doodleThoughtPreviewHeld;
     private boolean chainRelationPreviewHeld;
+    private boolean chainPreviewSingleHeld;
+    private javax.swing.JPopupMenu chainPreviewChooser;
 	private int doodleThoughtPreviewGroup = -1;
 	private int doodleThoughtPreviewAnchorCell = -1;
 	private int doodleThoughtPreviewAnchorDigit;
@@ -340,13 +355,16 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		final int group;
 		final Map<Integer, Integer> filledCells = new HashMap<Integer, Integer>();
 		final Set<Integer> removedCandidates = new HashSet<Integer>();
+        final Set<Integer> peerCandidates = new HashSet<Integer>();
 		final Set<Integer> conflicts = new HashSet<Integer>();
+        final Set<Integer> protectedCandidates = new HashSet<Integer>();
 		DoodleThoughtPreviewProjection(int group) { this.group = group; }
 	}
 	private DoodleThoughtPreviewProjection doodleThoughtPreviewProjection;
     private DoodleGesture doodleGesture = DoodleGesture.NONE;
     private Point doodleGestureStart, doodleGestureCurrent;
     private List<DoodleStroke> doodleErasePreview;
+    private final List<DoodleStroke> doodleEraseGhosts = new ArrayList<DoodleStroke>();
     private float doodleEraserRadius = 0.025f;
     private boolean deletionModifierDown;
     private Cursor annotationCursorBeforeDelete;
@@ -371,6 +389,12 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		escapeOrder = escapeGestureOrder = escapePreviewOrder = escapeToolOrder = escapeViewOrder = 0;
 	}
     private int annotationPaintLayer;
+    // Per-render display state only; source annotations and replay data keep their geometry.
+    private final Color[] annotationCellBackgrounds = new Color[81];
+    private final Color[] annotationCandidateBackgrounds = new Color[810];
+    private final double[] nativeCandidateMarkerSizes = new double[810];
+    private DoodleFrameIndex annotationDoodleFrame;
+    private int doodleCandidatePaintPass; // 0: legacy/all, 1: free ink, 2: standard candidate marks
     private boolean chainOptionDown;
     private boolean chainCommandDown;
     private final java.util.Set<String> previewSourceAnnotations = new java.util.HashSet<>();
@@ -383,6 +407,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     private boolean boxRightInspect, boxRightDragged;
     private boolean doodleDragged;
     private double lastUserChainRouteDiameter;
+    private double lastCandidateMarkDiameter;
 	private float doodleWidthFactor = 0.006f;
 	private final List<UserChain> userChains = new ArrayList<UserChain>();
 	private final Stack<List<UserChain>> userChainUndoStack = new Stack<List<UserChain>>();
@@ -399,6 +424,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     private String inspectedBoxSignature;
 	private Point boxDragStart;
 	private Point boxDragCurrent;
+	private boolean boxDragging;
 	private boolean boxDragRemoves;
 	private int boxDragGroup;
 	private SudokuSet boxDragPreview;
@@ -465,6 +491,18 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     }
 
 	private ReasoningProposal reasoningProposal;
+
+    /** One transient transfer authorization, never part of session or undo state. */
+    private static final class ChainTranscriptionPending {
+        final ReasoningProposal proposal;
+        final DoodleChainTranscription.Results results;
+        final List<UserChain> sources;
+        ChainTranscriptionPending(ReasoningProposal proposal, DoodleChainTranscription.Results results,
+                List<UserChain> sources) {
+            this.proposal = proposal; this.results = results; this.sources = sources;
+        }
+    }
+    private ChainTranscriptionPending pendingChainTranscription;
 	private Thread reasoningWorker;
 	private boolean applyingReasoningProposal;
 	private boolean internalReasoningStepChange;
@@ -538,7 +576,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         ReplayAnnotations current=captureReplayAnnotations();
         for(int i=0;i<pair.size();i++){
             ReplayFrame f=pair.get(i);ReplayAnnotations annotations=f.methodStep()?(request!=null&&request.replayAnnotations!=null?request.replayAnnotations:displayedProof&&replayDisplayedAnnotations!=null?replayDisplayedAnnotations:current):current;
-            pair.set(i,f.withAnnotations("authored-input".equals(f.kind)?annotations:annotations.withProof(f.evidence())));
+            byte[] displayProof="apply".equals(f.kind)?proof:f.evidence();
+            boolean rawChain="authored-input".equals(f.kind)&&request.sourceKind!=ReasoningSourceKind.BOX;
+            pair.set(i,f.withAnnotations(rawChain?annotations:annotations.withProof(displayProof,before)));
         }
         if(replayBatch!=null)replayBatch.addAll(pair);else c.appendOperation(pair);
     }
@@ -547,7 +587,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         ReplayController c=mainFrame.getReplayController();if(c!=null&&frames!=null&&!frames.isEmpty()){c.updateElapsed();c.appendOperation(frames);}
     }
     /** Captures completed annotation state only when a board operation is committed. */
-    ReplayAnnotations captureReplayAnnotations() {
+    ReplayAnnotations captureReplayAnnotations() { return captureReplayAnnotations(false); }
+    private ReplayAnnotations captureReplayAnnotations(boolean includeConsensus) {
+        List<DoodleStroke> capturedInk = doodlePresentationInk(activeDoodleMarks(), currentDoodleContradiction(), includeConsensus);
         List<UserChain> chains=snapshotUserChains();
         byte[] geometry=ReplayEvidence.input("FREE_CHAIN",getBoxReasoningGroupsSnapshot(),chains);
         StringBuilder text=new StringBuilder();
@@ -567,13 +609,23 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         for(Map.Entry<Integer,Color> e:coloringCandidateMap.entrySet())text.append("M ").append(e.getKey()).append(' ').append(ReplayAnnotations.nearest(e.getValue())).append('\n');
 		// Windows ink has raw pixels only. Export at this frame's actual canvas; Mac
 		// keeps anchors, widths and relative points in the optional extension.
-        for(DoodleStroke stroke:doodleStrokes){
-            java.awt.geom.AffineTransform projection=doodleProjection(stroke,getWidth(),getHeight());if(projection==null||stroke.getPoints().isEmpty())continue;
-            text.append("P ").append(stroke.getColor().getRGB());
-            for(DoodlePoint p:stroke.getPoints()){Point2D.Double target=new Point2D.Double();projection.transform(new Point2D.Double(p.getX(),p.getY()),target);text.append(' ').append(Math.round(target.x)).append(':').append(Math.round(target.y));}text.append('\n');
+        int visibleOutlineGroup = cellZoomPanel == null ? -1 : cellZoomPanel.getPaletteGroup();
+        for(DoodleStroke stroke:capturedInk){
+            java.awt.geom.AffineTransform projection=doodleProjection(stroke,getWidth(),getHeight());
+            if(stroke.isStandardCandidateMark()){
+                int paths=projection==null||(stroke.pointCount() == 0)?0:stroke.getCandidateMarkKind()==DoodleStroke.MARK_FALSE_CROSS?2:1;
+                if(paths>0&&stroke.isConclusionOutlined()&&stroke.getThoughtGroup()==visibleOutlineGroup
+                        &&hasCandidateAnchor(stroke.getAnchorCell(),stroke.getAnchorDigit()))paths++;
+                ReplayAnnotations.appendStructuredMark(text,stroke,visibleOutlineGroup,paths);
+            }
+            if(projection==null||(stroke.pointCount() == 0))continue;
+            for(int start=0;start<stroke.pointCount();){
+                int end=stroke.getCandidateMarkKind()==DoodleStroke.MARK_FALSE_CROSS?Math.min(start+2,stroke.pointCount()):stroke.pointCount();
+                text.append("P ").append(doodleDisplayColor(stroke).getRGB());
+                for(int i=start;i<end;i++){Point2D.Double target=new Point2D.Double();projection.transform(new Point2D.Double(stroke.pointX(i),stroke.pointY(i)),target);text.append(' ').append(Math.round(target.x)).append(':').append(Math.round(target.y));}text.append('\n');start=end;
+            }
         }
-		int visibleOutlineGroup = cellZoomPanel == null ? -1 : cellZoomPanel.getPaletteGroup();
-		for (DoodleStroke stroke : doodleStrokes) {
+		for (DoodleStroke stroke : capturedInk) {
 			if (!stroke.isStandardCandidateMark() || !stroke.isConclusionOutlined()
 					|| stroke.getThoughtGroup() != visibleOutlineGroup
 					|| !hasCandidateAnchor(stroke.getAnchorCell(), stroke.getAnchorDigit())) continue;
@@ -581,7 +633,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			if (centerline != null) appendReplayOutlinePath(text, centerline, doodleStrokePixelWidth(stroke,
 					getWidth(), getHeight()));
 		}
-        return new ReplayAnnotations(text.toString(),geometry,coloringMap,coloringCandidateMap,doodleStrokes,
+        return new ReplayAnnotations(text.toString(),geometry,coloringMap,coloringCandidateMap,capturedInk,
 				visibleOutlineGroup);
     }
 
@@ -593,16 +645,58 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				.createStrokedShape(centerline);
 		Path2D.Double contour = outerContour(glyph);
 		if (contour == null) return;
-		text.append("P ").append(DOODLE_CONCLUSION_OUTLINE_COLOR.getRGB());
-		double[] point = new double[6];
-		for (java.awt.geom.PathIterator it = contour.getPathIterator(null, 0.5); !it.isDone(); it.next()) {
-			int type = it.currentSegment(point);
-			if (type == java.awt.geom.PathIterator.SEG_MOVETO || type == java.awt.geom.PathIterator.SEG_LINETO) {
-				text.append(' ').append(Math.round(point[0])).append(':').append(Math.round(point[1]));
-			}
-		}
+        // The public format is integer pixels. Remove repeated/collinear
+        // vertices after bounded contour simplification and quantization.
+        List<long[]> vertices = new ArrayList<long[]>();
+        List<Point2D.Double> flattened = new ArrayList<Point2D.Double>();
+        double[] point = new double[6];
+        for (java.awt.geom.PathIterator it = contour.getPathIterator(null, 0.5); !it.isDone(); it.next()) {
+            int type = it.currentSegment(point);
+            if (type == java.awt.geom.PathIterator.SEG_MOVETO || type == java.awt.geom.PathIterator.SEG_LINETO)
+                flattened.add(new Point2D.Double(point[0], point[1]));
+        }
+        // Stay within the existing half-pixel contour flattening precision;
+        // dense round joins otherwise exceed the shared UTF frame limit.
+        boolean[] retained = new boolean[flattened.size()];
+        if (!flattened.isEmpty()) {
+            retained[0] = retained[retained.length-1] = true;
+            simplifyReplayContour(flattened, 0, flattened.size()-1, retained);
+        }
+        for (int index=0; index<flattened.size(); index++) {
+            if (!retained[index]) continue;
+            Point2D.Double at = flattened.get(index);
+            point[0]=at.x; point[1]=at.y;
+            long[] next = {Math.round(point[0]), Math.round(point[1])};
+            if (!vertices.isEmpty()) {
+                long[] last = vertices.get(vertices.size()-1);
+                if (last[0] == next[0] && last[1] == next[1]) continue;
+            }
+            while (vertices.size() >= 2) {
+                long[] first = vertices.get(vertices.size()-2), last = vertices.get(vertices.size()-1);
+                long ax=last[0]-first[0], ay=last[1]-first[1], bx=next[0]-last[0], by=next[1]-last[1];
+                if (ax*by != ay*bx || ax*bx+ay*by < 0) break;
+                vertices.remove(vertices.size()-1);
+            }
+            vertices.add(next);
+        }
+        text.append("P ").append(DOODLE_CONCLUSION_OUTLINE_COLOR.getRGB());
+        for (long[] vertex : vertices) text.append(' ').append(vertex[0]).append(':').append(vertex[1]);
 		text.append('\n');
 	}
+
+    private static void simplifyReplayContour(List<Point2D.Double> points, int first, int last, boolean[] retained) {
+        if (last <= first+1) return;
+        Point2D.Double a=points.get(first), b=points.get(last);
+        double maximum=0.35*0.35; int split=-1;
+        for (int i=first+1;i<last;i++) {
+            Point2D.Double point=points.get(i);
+            double distance=java.awt.geom.Line2D.ptSegDistSq(a.x,a.y,b.x,b.y,point.x,point.y);
+            if (distance>maximum) { maximum=distance;split=i; }
+        }
+        if (split<0) return;
+        retained[split]=true;
+        simplifyReplayContour(points,first,split,retained);simplifyReplayContour(points,split,last,retained);
+    }
 
 	private static Path2D.Double outerContour(Shape shape) {
 		Path2D.Double largest = null;
@@ -648,27 +742,73 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         if(annotations.geometry().length>0){ReplayEvidence raw=ReplayEvidence.decode(annotations.geometry());boxReasoningGroups.addAll(raw.boxes());List<UserChain> restored=raw.chains();for(UserChain c:restored)c.setAnalysisResult(null);
             if(!replayReadOnly)restoreUserChainSnapshot(restored);else for(UserChain c:restored){c.setActive(false);userChains.add(c);}}
         while(boxReasoningGroups.size()<6)boxReasoningGroups.add(new SudokuSet());
-        coloringMap.putAll(annotations.cells());coloringCandidateMap.putAll(annotations.candidates());doodleStrokes.addAll(annotations.ink());
+        coloringMap.putAll(annotations.cells());coloringCandidateMap.putAll(annotations.candidates());
+        for (DoodleStroke mark : annotations.ink()) {
+            if (!replayReadOnly && mark.isRefutationResult()) continue;
+            if (!replayReadOnly) {
+                mark.setContradictionWitness(false);
+                if (annotations.isAutomaticSelection(mark)) {
+                    mark.setConclusionOutlined(false); mark.setConclusionSourceMask(0);
+                }
+            }
+            doodleStrokes.add(mark);
+            if (!replayReadOnly && mark.isStandardCandidateMark() && mark.getThoughtGroup() >= 0)
+                doodleHypothesisConsumedMask |= 1 << mark.getThoughtGroup();
+        }
+        if (!replayReadOnly) reconcileDoodleComposition();
 		replayOutlineVisibleGroup = annotations.outlineVisibleGroup;
         userChainsVisible=true;boxReasoningVisible=true;doodlesVisible=true;invalidUserChainRelations.clear();repaint();
     }
 
     private boolean replayReadOnly;
 	private int replayOutlineVisibleGroup = -1;
-    public void setReplayReadOnly(boolean value) { replayReadOnly=value; setFocusable(!value); }
+    private final Set<Integer> replayProofCandidates = new HashSet<Integer>();
+    private final Set<Integer> replayAppliedValues = new HashSet<Integer>();
+    private final Set<Integer> replayFinCandidates = new HashSet<Integer>(), replayEndoFinCandidates = new HashSet<Integer>();
+    private boolean replayBoxProof;
+    public void setReplayReadOnly(boolean value) {
+        if (value) cancelChainTranscription("MainFrame.chainTranscription.canceled");
+        if(value)clearPaletteKeyState();
+        replayReadOnly=value; setFocusable(!value);
+    }
     /** Pure renderer update: no live frame callbacks, solver requests or progress mutations. */
     public void displayReplayBoard(ReplayBoard board, SolutionStep evidence) {
         if (!replayReadOnly) throw new IllegalStateException("Not a replay renderer");
         sudoku=board.toSudoku(); step=evidence; chainIndex=-1;
+        replayProofCandidates.clear();replayAppliedValues.clear();
+        replayFinCandidates.clear();replayEndoFinCandidates.clear();replayBoxProof=false;
         cellSelection.clear(); coloringMap.clear(); coloringCandidateMap.clear();
         userChains.clear(); boxReasoningGroups.clear(); doodleStrokes.clear();activeUserChain=null;invalidUserChainRelations.clear();
         repaint();
     }
     public void displayReplayFrame(ReplayFrame frame)throws java.io.IOException {
+        displayReplayFrame(frame,null,frame.board);
+    }
+    /** Historical proof affects painting only; sudoku always retains the current frame board. */
+    void displayReplayFrame(ReplayFrame frame,SolutionStep appliedProof,ReplayBoard proofBoard)throws java.io.IOException {
         byte[] bytes=frame.evidence();ReplayEvidence evidence=ReplayEvidence.authored(bytes)?ReplayEvidence.decode(bytes):null;
         boolean input="authored-input".equals(frame.kind),result="authored-result".equals(frame.kind);
-        displayReplayBoard(frame.board,evidence==null?ReplayProof.decode(bytes):result?ReplayEvidence.proof(bytes):null);
+        boolean boxProof=evidence!=null&&evidence.source.equals("BOX");
+        displayReplayBoard(frame.board,appliedProof!=null?appliedProof:evidence==null?ReplayProof.decode(bytes):result||input&&boxProof?ReplayEvidence.proof(bytes):null);
+        replayBoxProof=boxProof&&step!=null;
         installReplayAnnotations(frame.annotations);
+        Sudoku2 before=proofBoard.toSudoku();
+        if(step!=null){
+            ReasoningStepIndex index=ReasoningStepIndex.from(step,before);
+            replayProofCandidates.addAll(index.premiseNodes);replayProofCandidates.addAll(index.conclusionNodes);
+        }else if(!input&&!frame.annotations.nativeData){
+            for(int atom:frame.annotations.proofCandidateAtoms())if(before.isCandidate(atom/10,atom%10))replayProofCandidates.add(atom);
+            replayFinCandidates.addAll(frame.annotations.proofFinAtoms(false));
+            replayEndoFinCandidates.addAll(frame.annotations.proofFinAtoms(true));
+        }
+        // Candidate-anchored foreign glyphs are frozen viewing evidence even
+        // after removal, and must not restore candidates in the actual board.
+        if(!frame.annotations.nativeData)for(DoodleStroke mark:frame.annotations.ink())
+            if(mark.isStandardCandidateMark())replayProofCandidates.add(mark.getAnchorCell()*10+mark.getAnchorDigit());
+        for(int atom:replayProofCandidates){
+            int cell=atom/10;
+            if(before.getValue(cell)==0&&sudoku.getValue(cell)==atom%10)replayAppliedValues.add(cell);
+        }
         if(evidence!=null&&(input||result)){
             boxReasoningGroups.clear();userChains.clear();
             boxReasoningGroups.addAll(evidence.boxes());userChains.addAll(evidence.chains());
@@ -909,12 +1049,14 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	
 	public void resetKeyState() {
 		isCtrlDown = false;
+		clearPaletteKeyState();
 		resetKeyboardUnitHighlight();
 		cancelAnnotationToolKeyGesture();
 	}
 
 	void cancelAnnotationToolInteractionOnDeactivation() {
-        flushMappedClick(); finishDoodleHypothesisEntry(); doodleHypothesisGDown = false;
+        flushMappedClick(); finishDoodleHypothesisEntry(); clearActiveDoodleHypothesisKeyGesture();
+        clearPaletteKeyState();
         cancelMappedPointer();
         clearChainRelationPreview();
         setChainJunctionHover(false);
@@ -1324,7 +1466,6 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	private void onKeyReleased(java.awt.event.KeyEvent evt) {
         updateDeletionModifier(evt);
-        if (evt.getKeyCode() == KeyEvent.VK_G) doodleHypothesisGDown = false;
 		if (handleChainRelationPreviewKeyReleased(evt)) return;
 		if (handleDoodlePreviewKeyReleased(evt)) return;
 		if (handleAnnotationToolKeyReleased(evt)) {
@@ -1357,12 +1498,77 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		mainFrame.fixFocus();
 	}
 
+    private boolean handlePaletteKeyPressed(KeyEvent event) {
+        int code = event.getKeyCode();
+        if (code < KeyEvent.VK_A || code > KeyEvent.VK_D) return false;
+        if (event.getComponent() instanceof javax.swing.text.JTextComponent) {
+            cancelPaletteKeyScope(); return false;
+        }
+        // Repeats must neither switch tools' palettes nor finalize double clicks.
+        if (paletteKeysDown.contains(code)) { event.consume(); return true; }
+        if (event.getModifiersEx() != 0 || annotationTool == AnnotationTool.DEFAULT_MOUSE || replayReadOnly)
+            return false;
+        flushMappedClick();
+        clearPendingAnnotationToolTap(); clearPendingDoodleHypothesisTap();
+        if(annotationTool==AnnotationTool.DEFAULT_MOUSE||replayReadOnly)return false;
+        cellZoomPanel.selectPaletteGroup(code - KeyEvent.VK_A);
+        paletteKeysDown.add(code); activePaletteKey = code; paletteKeyTool = annotationTool;
+        event.consume(); return true;
+    }
+
+    boolean handlePaletteKeyReleased(KeyEvent event) {
+        if (event.getID() != KeyEvent.KEY_RELEASED || !paletteKeysDown.remove(event.getKeyCode())) return false;
+        if (activePaletteKey == event.getKeyCode()) cancelPaletteKeyScope();
+        // The pointer transaction owns its original scope until it settles.
+        event.consume(); return true;
+    }
+
+    void cancelPaletteKeyScope() { paletteKeyTool = null; activePaletteKey = KeyEvent.VK_UNDEFINED; }
+
+    private void clearPaletteKeyState() {
+        paletteKeysDown.clear(); cancelPaletteKeyScope();
+        paletteDeletePointerCaptured = false; paletteDeletePointerGroup = -1;
+    }
+
+    private int heldPaletteDeleteGroup() {
+        return paletteKeyTool == annotationTool && paletteKeysDown.contains(activePaletteKey)
+                ? activePaletteKey - KeyEvent.VK_A : -1;
+    }
+
+    private void capturePaletteDeletePointer() {
+        if (!paletteDeletePointerCaptured) {
+            paletteDeletePointerGroup = heldPaletteDeleteGroup(); paletteDeletePointerCaptured = true;
+        }
+    }
+
+    private int paletteDeleteGroup() {
+        return paletteDeletePointerCaptured ? paletteDeletePointerGroup : heldPaletteDeleteGroup();
+    }
+
+    private boolean matchesPaletteDeleteColor(Color color) {
+        int group = paletteDeleteGroup();
+        if (group < 0) return true;
+        Color[] palette = Options.getInstance().getColoringColors();
+        return color != null && (color.equals(palette[group * 2]) || color.equals(palette[group * 2 + 1]));
+    }
+
 	boolean handleAnnotationKeyPressed(KeyEvent event) {
+        if(event.getKeyCode()>=KeyEvent.VK_A&&event.getKeyCode()<=KeyEvent.VK_D
+                &&event.getComponent() instanceof javax.swing.text.JTextComponent) {
+            cancelPaletteKeyScope();return false;
+        }
+        if (handlePaletteKeyPressed(event)) return true;
+        if (event.getKeyCode() != KeyEvent.VK_G || event.getModifiersEx() != 0
+                || event.getComponent() instanceof javax.swing.text.JTextComponent)
+            clearPendingDoodleHypothesisTap();
+        if (annotationTool == AnnotationTool.FREE_CHAIN) {
+            boolean single = event.isMetaDown() || event.getKeyCode() == KeyEvent.VK_META;
+            if (chainPreviewSingleHeld != single) { chainPreviewSingleHeld = single; repaint(); }
+        }
         if (annotationTool == AnnotationTool.DOODLE && event.getKeyCode() == KeyEvent.VK_G
                 && event.getModifiersEx() == 0 && !replayReadOnly
                 && !(event.getComponent() instanceof javax.swing.text.JTextComponent)) {
-            if (!doodleHypothesisGDown) { doodleHypothesisGDown = true; toggleDoodleHypothesisEntry(); }
-            event.consume(); return true;
+            return handleDoodleHypothesisKeyPressed(event);
         }
         if(event.getKeyCode()==KeyEvent.VK_ALT && usesMappedPointer()
                 && !(event.getComponent() instanceof javax.swing.text.JTextComponent)) {
@@ -1376,6 +1582,15 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		if (!isUnmodifiedAnnotationToolShortcut(event)) {
 			clearPendingAnnotationToolTap();
 		}
+        if (event.getKeyCode() == KeyEvent.VK_ENTER
+                && !(event.getComponent() instanceof javax.swing.text.JTextComponent)) {
+            if (modifiers == KeyEvent.SHIFT_DOWN_MASK && annotationTool == AnnotationTool.FREE_CHAIN) {
+                startChainConclusionTranscription(); event.consume(); return true;
+            }
+            if (modifiers == 0 && hasPendingChainTranscription()) {
+                confirmChainConclusionTranscription(); event.consume(); return true;
+            }
+        }
         if (annotationTool == AnnotationTool.DOODLE && event.getKeyCode() == KeyEvent.VK_ENTER
                 && modifiers == 0 && !(event.getComponent() instanceof javax.swing.text.JTextComponent)
                 && hasOutlinedDoodleConclusions()) {
@@ -1416,13 +1631,6 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			redoCurrentAnnotation();
 			return true;
 		}
-        if ((annotationTool == AnnotationTool.CANDIDATE_COLORING || annotationTool == AnnotationTool.CELL_COLORING)
-                && event.getKeyCode() >= KeyEvent.VK_A && event.getKeyCode() <= KeyEvent.VK_D
-                && modifiers == 0) {
-            cellZoomPanel.selectPaletteGroup(event.getKeyCode() - KeyEvent.VK_A);
-            event.consume();
-            return true;
-        }
 		if (annotationTool == AnnotationTool.DOODLE) {
 			int keyCode = event.getKeyCode();
 			if (keyCode == KeyEvent.VK_BACK_SPACE && modifiers == 0) {
@@ -1446,7 +1654,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				return true;
 			}
 			int colorModifiers = modifiers & ~(KeyEvent.SHIFT_DOWN_MASK);
-			if (keyCode >= KeyEvent.VK_A && keyCode <= KeyEvent.VK_D && colorModifiers == 0) {
+			if (keyCode >= KeyEvent.VK_A && keyCode <= KeyEvent.VK_D && colorModifiers == 0
+                    && (modifiers & KeyEvent.SHIFT_DOWN_MASK) != 0) {
 				int colorIndex = (keyCode - KeyEvent.VK_A) * 2
 						+ ((modifiers & KeyEvent.SHIFT_DOWN_MASK) != 0 ? 1 : 0);
 				if ((modifiers & KeyEvent.SHIFT_DOWN_MASK) != 0)
@@ -1466,14 +1675,6 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				adjustDoodleWidth(-1);
 				return true;
 			}
-		}
-		if ((annotationTool == AnnotationTool.FREE_CHAIN
-				|| annotationTool == AnnotationTool.BOX_SELECTION)
-				&& event.getKeyCode() >= KeyEvent.VK_A && event.getKeyCode() <= KeyEvent.VK_D
-				&& modifiers == 0) {
-			int group = event.getKeyCode() - KeyEvent.VK_A;
-			cellZoomPanel.selectPaletteGroup(group);
-			return true;
 		}
 		if (annotationTool != AnnotationTool.DEFAULT_MOUSE
 				&& annotationTool != AnnotationTool.CANDIDATE_COLORING
@@ -1518,8 +1719,10 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	 * control in the main window currently owns keyboard focus.
 	 */
 	boolean handleEscapeVisualReset() {
+        clearPendingDoodleHypothesisTap();
         if (isDoodleHypothesisEntryActive()) { flushMappedClick(); finishDoodleHypothesisEntry(); return true; }
         if(mappedPress!=null||pendingMappedClick!=null) {
+            suppressNextAnnotationPointerRelease |= mappedPress!=null;
             cancelMappedPointer();cancelDoodleGesture();clearBoxReasoningDragState();
             coloringPress=coloringCurrent=chainFlipStart=chainFlipCurrent=chainDeleteStart=chainDeleteCurrent=null;
             finishAnnotationToolPointerGesture();repaint();return true;
@@ -1528,6 +1731,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             clearChainRelationPreview();clearDoodleThoughtPreview();return true;
         }
         if (chainRelationPreviewHeld) { clearChainRelationPreview(); return true; }
+        if (hasPendingChainTranscription()) {
+            cancelChainTranscription("MainFrame.chainTranscription.canceled"); return true;
+        }
 		clearPendingAnnotationToolTap();
 		boolean gesture = coloringPress != null || chainFlipStart != null || chainDeleteStart != null
 				|| boxDragStart != null || doodleGesture != DoodleGesture.NONE
@@ -1718,8 +1924,142 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     }
 
     boolean hasReasoningEnterContext() {
-        return annotationTool != AnnotationTool.DEFAULT_MOUSE || reasoningProposal != null
+        return hasPendingChainTranscription() || annotationTool != AnnotationTool.DEFAULT_MOUSE || reasoningProposal != null
                 || reasoningRequest != null || applyingReasoningProposal;
+    }
+
+    boolean hasPendingChainTranscription() { return pendingChainTranscription != null; }
+
+    boolean hasChainTranscriptionShortcutContext() {
+        return !replayReadOnly && annotationTool == AnnotationTool.FREE_CHAIN
+                && reasoningRequest == null && !applyingReasoningProposal
+                && reasoningProposal != null && reasoningProposal.authoredChainProof
+                && reasoningProposal.request.sourceKind == ReasoningSourceKind.FREE_CHAIN
+                && reasoningProposal.request.replayValidation != null
+                && !reasoningProposal.request.replayValidation.steps.isEmpty()
+                && isReasoningProposalCurrent(reasoningProposal);
+    }
+
+    String chainTranscriptionStatusText() {
+        ChainTranscriptionPending pending = pendingChainTranscription;
+        if (pending == null) return "";
+        return java.text.MessageFormat.format(java.util.ResourceBundle.getBundle("intl/MainFrame")
+                .getString("MainFrame.chainTranscription.ready"), pending.results.trueAtoms.size(),
+                pending.results.falseAtoms.size(), Character.toString((char) ('A' + cellZoomPanel.getPaletteGroup())));
+    }
+
+    void cancelChainTranscriptionOnExternalFocusLoss() {
+        cancelChainTranscription("MainFrame.chainTranscription.canceled");
+    }
+
+    void cancelChainTranscriptionForReplayViewing() {
+        cancelChainTranscription("MainFrame.chainTranscription.canceled");
+    }
+
+    private void cancelChainTranscription(String statusKey) {
+        if (pendingChainTranscription == null) return;
+        pendingChainTranscription = null;
+        cancelReasoningState(true, statusKey);
+        mainFrame.check(); repaint();
+    }
+
+    private boolean startChainConclusionTranscription() {
+        if (!hasChainTranscriptionShortcutContext()) return false;
+        DoodleChainTranscription.Results results = DoodleChainTranscription.capture(reasoningProposal.request.replayValidation);
+        if (results.isEmpty()) return false;
+        List<UserChain> sources = new ArrayList<UserChain>();
+        if (reasoningProposal.request.sourceId == -1L) sources = copyUserChains(currentReasoningChains());
+        else {
+            UserChain source = findUserChain(reasoningProposal.request.sourceId);
+            if (source != null) sources.add(copyUserChain(source));
+        }
+        if (sources.isEmpty()) return false;
+        pendingChainTranscription = new ChainTranscriptionPending(reasoningProposal, results, sources);
+        setAnnotationTool(AnnotationTool.DOODLE);
+        // The toolbar Apply shares this transfer gate while Cancel remains available.
+        mainFrame.setReasoningControls(true, true);
+        mainFrame.check(); mainFrame.announceStatus(chainTranscriptionStatusText());
+        mainFrame.fixFocus(); repaint();
+        return true;
+    }
+
+    private boolean isChainTranscriptionCurrent(ChainTranscriptionPending pending) {
+        if (pending == null || pendingChainTranscription != pending || replayReadOnly
+                || annotationTool != AnnotationTool.DOODLE || !isReasoningProposalCurrent(pending.proposal)) return false;
+        for (UserChain saved : pending.sources) {
+            UserChain current = findUserChain(saved.getSourceId());
+            if (current == null || !UserChainAssembly.sameStructure(saved, current)) return false;
+        }
+        return true;
+    }
+
+    /** P and L retain separate undo; the actual replacement/consumption is atomic. */
+    private void confirmChainConclusionTranscription() {
+        ChainTranscriptionPending pending = pendingChainTranscription;
+        if (!isChainTranscriptionCurrent(pending)) {
+            cancelChainTranscription("MainFrame.chainTranscription.invalidated"); return;
+        }
+        if (mappedPress != null || activeDoodleStroke != null || annotationToolPointerCaptured
+                || doodleGesture != DoodleGesture.NONE) {
+            mainFrame.announceReasoningStatus("MainFrame.chainTranscription.busy"); return;
+        }
+        int group = cellZoomPanel.getPaletteGroup();
+        DoodleChainTranscription.Plan plan = DoodleChainTranscription.plan(sudoku, doodleStrokes, group, pending.results);
+        if (plan == null) {
+            mainFrame.announceReasoningStatus("MainFrame.chainTranscription.missingStart"); return;
+        }
+        List<DoodleStroke> replacement = new ArrayList<DoodleStroke>();
+        Set<Integer> ownedSources = new HashSet<Integer>();
+        for (DoodleStroke mark : doodleStrokes) {
+            if (mark.getThoughtGroup() != group || !mark.isProofOnly()
+                    && mark.isHypothesisStart() && !mark.isRefutationResult()) {
+                replacement.add(mark.copy());
+                if (!mark.isProofOnly() && mark.getDerivedSourceId() != 0) ownedSources.add(mark.getDerivedSourceId());
+            }
+        }
+        // Read-only proof ink belongs to a retained start, not to the old ordinary marks.
+        for (DoodleStroke mark : doodleStrokes) if (mark.getThoughtGroup() == group && mark.isProofOnly()
+                && ownedSources.contains(mark.getDerivedSourceId())) replacement.add(mark.copy());
+        Color color = cellZoomPanel.getPrimaryColor();
+        for (int atom : plan.trueAtoms) replacement.add(createCandidateHypothesisMark(atom / 10, atom % 10,
+                DoodleStroke.MARK_TRUE_CIRCLE, group, color));
+        for (int atom : plan.falseAtoms) replacement.add(createCandidateHypothesisMark(atom / 10, atom % 10,
+                DoodleStroke.MARK_FALSE_CROSS, group, color));
+
+        List<DoodleStroke> beforeInk = copyDoodles(doodleStrokes);
+        List<UserChain> beforeChains = snapshotUserChains();
+        int beforeMask = doodleHypothesisConsumedMask;
+        long beforeChainRevision = userChainReasoningRevision, beforeConfirmed = confirmedUserChainSourceId;
+        boolean beforeNextStrong = nextUserChainStrong;
+        AnnotationTimeline beforeTimeline = annotationTimeline.snapshot();
+        Runnable undoP = preserveMappedHistory(doodleUndoStack), redoP = preserveMappedHistory(doodleRedoStack);
+        Runnable undoMasks = preserveMappedHistory(doodleHypothesisUndoMasks), redoMasks = preserveMappedHistory(doodleHypothesisRedoMasks);
+        Runnable undoL = preserveMappedHistory(userChainUndoStack), redoL = preserveMappedHistory(userChainRedoStack);
+        Set<Long> sourceIds = new HashSet<Long>();
+        for (UserChain source : pending.sources) sourceIds.add(source.getSourceId());
+        try {
+            pushDoodleUndo(); pushUserChainUndo();
+            doodleStrokes.clear(); doodleStrokes.addAll(replacement);
+            doodleHypothesisConsumedMask |= 1 << group;
+            userChains.removeIf(source -> sourceIds.contains(source.getSourceId()));
+            if (activeUserChain != null && sourceIds.contains(activeUserChain.getSourceId())) activeUserChain = null;
+            if (sourceIds.contains(confirmedUserChainSourceId)) confirmedUserChainSourceId = 0L;
+            reconcileDoodleComposition();
+        } catch (RuntimeException | Error failure) {
+            doodleStrokes.clear(); doodleStrokes.addAll(beforeInk); doodleHypothesisConsumedMask = beforeMask;
+            restoreUserChainSnapshot(beforeChains); nextUserChainStrong = beforeNextStrong;
+            confirmedUserChainSourceId = beforeConfirmed; userChainReasoningRevision = beforeChainRevision;
+            undoP.run(); redoP.run(); undoMasks.run(); redoMasks.run(); undoL.run(); redoL.run();
+            annotationTimeline.restore(beforeTimeline);
+            mainFrame.check(); repaint();
+            throw failure;
+        }
+        pendingChainTranscription = null;
+        finishDoodleHypothesisEntry(); clearActiveDoodleHypothesisKeyGesture();
+        clearDoodleThoughtPreview();
+        cancelReasoningState(true, null);
+        noteUserChainReasoningChanged();
+        mainFrame.check(); mainFrame.announceReasoningStatus("MainFrame.chainTranscription.done"); repaint();
     }
 
     java.util.Set<Integer> currentReasoningColoredCells() {return new java.util.TreeSet<Integer>(coloringMap.keySet());}
@@ -2131,6 +2471,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	/** Routes toolbar, hint-panel, and Enter confirmation through one revalidation gate. */
 	boolean confirmReasoningProposal() {
+        if (hasPendingChainTranscription()) { confirmChainConclusionTranscription(); return true; }
         if(adoptImportedChainText())return true;
 		if (reasoningRequest != null || applyingReasoningProposal) {
 			mainFrame.announceReasoningStatus(applyingReasoningProposal
@@ -2190,8 +2531,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	private boolean cancelReasoningState(boolean removeOverlay, String statusKey) {
-		boolean changed = reasoningRequest != null || reasoningProposal != null
+		boolean changed = hasPendingChainTranscription() || reasoningRequest != null || reasoningProposal != null
 				|| applyingReasoningProposal;
+        pendingChainTranscription = null;
 		if (reasoningWorker != null) reasoningWorker.interrupt();
 		reasoningWorker = null;
 		reasoningRequest = null;
@@ -2281,7 +2623,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	boolean handleAnnotationToolKeyReleased(KeyEvent event) {
-        if (event.getKeyCode() == KeyEvent.VK_G) doodleHypothesisGDown = false;
+        if (handlePaletteKeyReleased(event)) return true;
+        if (handleDoodleHypothesisKeyReleased(event)) return true;
         if (handleChainRelationPreviewKeyReleased(event)) return true;
         updateDeletionModifier(event);
 		if (handleDoodlePreviewKeyReleased(event)) return true;
@@ -2424,11 +2767,16 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		noteEscapeGesture();
 		annotationToolGestureUsedBoard = true;
 		clearPendingAnnotationToolTap();
+        doodleHypothesisGUsedBoard |= doodleHypothesisGDown;
+        clearPendingDoodleHypothesisTap();
 		annotationToolPointerCaptured |= capturesPointer;
 	}
 
 	private void finishAnnotationToolPointerGesture() {
 		annotationToolPointerCaptured = false;
+        paletteDeletePointerCaptured = false;
+        paletteDeletePointerGroup = -1;
+        if (pendingDoodleHypothesisEntryFinish) finishDoodleHypothesisEntry();
 		if (pendingAnnotationToolRestore != null) {
 			AnnotationTool restore = pendingAnnotationToolRestore;
 			pendingAnnotationToolRestore = null;
@@ -2457,31 +2805,87 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		return digit && (modifiers & KeyEvent.ALT_DOWN_MASK) != 0 && (modifiers & forbidden) == 0;
 	}
 
+    private void clearHeldPaletteWithUndo() {
+        flushMappedClick();cancelMappedActiveGesture();
+        int group=heldPaletteDeleteGroup();
+        if(group<0)return;
+        if(isColoringTool(annotationTool)) {
+            boolean any=coloringMap.values().stream().anyMatch(this::matchesPaletteDeleteColor)
+                    ||coloringCandidateMap.values().stream().anyMatch(this::matchesPaletteDeleteColor);
+            if(!any)return;
+            pushColoringUndo();coloringMap.values().removeIf(this::matchesPaletteDeleteColor);
+            coloringCandidateMap.values().removeIf(this::matchesPaletteDeleteColor);updateCellZoomPanel();
+        } else if(annotationTool==AnnotationTool.DOODLE) {
+            java.util.function.Predicate<DoodleStroke> selected=stroke->!stroke.isProofOnly()
+                    &&(stroke.getThoughtGroup()>=0?stroke.getThoughtGroup()==group:matchesPaletteDeleteColor(stroke.getColor()));
+            if(!doodleStrokes.stream().anyMatch(selected)&&(doodleHypothesisConsumedMask&(1<<group))==0)return;
+            pushDoodleUndo();doodleStrokes.removeIf(selected);doodleHypothesisConsumedMask&=~(1<<group);
+            finishDoodleHypothesisEntry();reconcileDoodleComposition();
+        } else if(annotationTool==AnnotationTool.FREE_CHAIN) {
+            List<UserChain> all=new ArrayList<UserChain>(userChains);if(activeUserChain!=null)all.add(activeUserChain);
+            boolean changed=false;
+            for(UserChain original:all) {
+                Set<Integer> edges=new HashSet<Integer>();
+                for(int edge=0;edge<original.getStrongRelations().size();edge++)
+                    if(matchesPaletteDeleteColor(paletteChainEdgeColor(original,edge)))edges.add(edge);
+                Map<String,Set<Integer>> members=new java.util.HashMap<>();
+                for(UserChainNode node:original.getNodes())if(matchesPaletteDeleteColor(node.getColor())
+                        &&!hasProtectedPaletteRelation(original,node)) {
+                    Set<Integer> atoms=new HashSet<Integer>();for(int atom:node.atoms())atoms.add(atom);
+                    members.put(node.key(),atoms);
+                }
+                if(edges.isEmpty()&&members.isEmpty())continue;
+                if(!changed)pushUserChainUndo();changed=true;
+                int insert=userChains.indexOf(original);if(insert<0)insert=userChains.size();
+                userChains.remove(original);if(activeUserChain==original)activeUserChain=null;
+                for(UserChain fragment:cutPaletteChain(original,edges,members)) {
+                    fragment.setSourceId(nextUserChainSourceId++);
+                    if(fragment.isActive())activeUserChain=fragment;else userChains.add(Math.min(insert++,userChains.size()),fragment);
+                }
+            }
+            if(!changed)return;
+            synchronizeNextChainEdge();noteUserChainReasoningChanged();
+        } else if(annotationTool==AnnotationTool.BOX_SELECTION) {
+            if(boxReasoningGroups.get(group).isEmpty())return;
+            pushBoxReasoningUndo();boxReasoningGroups.get(group).clear();boxReasoningRevision++;noteBoxReasoningChanged();
+        } else return;
+        mainFrame.check();mainFrame.refreshAnnotationUndoControls();repaint();
+        OperationSoundPlayer.play(OperationSoundPlayer.Sound.CLEAR);
+    }
+
 	void clearCurrentAnnotationWithUndo() {
 		clearAnnotationToolWithUndo(annotationTool);
 	}
 
 	private void clearAnnotationToolWithUndo(AnnotationTool tool) {
+        if(tool==annotationTool&&heldPaletteDeleteGroup()>=0) { clearHeldPaletteWithUndo();return; }
+        flushMappedClick(); cancelMappedActiveGesture();
+        boolean changed;
 		switch (tool) {
 		case CANDIDATE_COLORING:
 		case CELL_COLORING:
-			clearColoringWithUndo();
+			changed = clearColoringWithUndo(true);
 			break;
 		case DOODLE:
-			clearDoodlesWithUndo();
+			changed = clearDoodlesWithUndo(true);
 			break;
 		case FREE_CHAIN:
-			clearUserChainsWithUndo();
+			changed = clearUserChainsWithUndo(true);
 			break;
 		case BOX_SELECTION:
-			clearBoxReasoningWithUndo();
+			changed = clearBoxReasoningWithUndo(true);
 			break;
 		default:
-			break;
+			return;
 		}
+        if (changed) {
+            mainFrame.refreshAnnotationUndoControls(); repaint();
+            OperationSoundPlayer.play(OperationSoundPlayer.Sound.CLEAR);
+        }
 	}
 
 	public void clearAllAnnotationsWithUndo() {
+        if(heldPaletteDeleteGroup()>=0) { clearHeldPaletteWithUndo();return; }
         flushMappedClick();cancelMappedActiveGesture();
 		boolean coloringChanged = clearColoringWithUndo(false);
 		boolean doodlesChanged = clearDoodlesWithUndo(false);
@@ -2494,6 +2898,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		if (coloringChanged) updateCellZoomPanel();
 		mainFrame.refreshAnnotationUndoControls();
 		repaint();
+        OperationSoundPlayer.play(OperationSoundPlayer.Sound.CLEAR);
 	}
 
 	public AnnotationTool getAnnotationTool() {
@@ -2586,6 +2991,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		if (tool == null) {
 			return false;
 		}
+        clearPendingDoodleHypothesisTap();
 		AnnotationTool precedingStickyTool = stickyAnnotationTool;
 		rememberSettledAnnotationToolOrigin(tool, precedingStickyTool);
 		if (tool == annotationTool) {
@@ -2618,8 +3024,10 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		if (tool == null) {
 			return false;
 		}
+        if (tool != AnnotationTool.DOODLE) cancelChainTranscription("MainFrame.chainTranscription.canceled");
 		clearChainRelationPreview();
 		AnnotationTool previousTool = annotationTool;
+        if (previousTool != tool) paletteKeyTool = null;
 		if (previousTool == AnnotationTool.DEFAULT_MOUSE && tool != AnnotationTool.DEFAULT_MOUSE) {
 			pruneStaleCandidateAnnotations();
 		}
@@ -2690,7 +3098,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	public int getDoodleStrokeCount() {
-		return doodleStrokes.size();
+		return activeDoodleMarks().size();
 	}
 
 	public int getUserChainCount() {
@@ -2789,7 +3197,11 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     private MouseEvent mappedPress, pendingMappedClick;
     private AnnotationTool pendingMappedTool;
     private Runnable mappedSingleRollback;
+    private Runnable pendingMappedDoodleFeedback;
+    private boolean deferringMappedDoodleFeedback;
     private boolean mappedSingleChainChanged;
+    private int mappedPressChainCandidate = -1, pendingMappedChainCandidate = -1;
+    private boolean mappedDragSecondClick, mappedPreciseChainDouble;
 
     private <T> Runnable preserveMappedHistory(final Stack<T> history) {
         final List<T> saved=new ArrayList<T>(history);
@@ -2819,8 +3231,13 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         return ()->{restore.run();annotationTimeline.restore(timeline);mainFrame.check();repaint();};
     }
     private void rollbackMappedSingle() {
+        pendingMappedDoodleFeedback = null;
         Runnable rollback=mappedSingleRollback;mappedSingleRollback=null;mappedSingleChainChanged=false;
         if(rollback!=null)rollback.run();
+    }
+    private void doodleEntryFeedback(Runnable feedback) {
+        if (deferringMappedDoodleFeedback) pendingMappedDoodleFeedback = feedback;
+        else feedback.run();
     }
     private boolean canApplyMappedSingleImmediately(MouseEvent e) {
         // Preserve the existing source/revision contract while an async chain result is in flight.
@@ -2835,6 +3252,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     private java.awt.geom.Area coloringSweep;
     private boolean optionPreviewHeld, middlePreviewHeld, spacePreviewHeld;
     private boolean doodleFreeEraser;
+    private boolean doodleWholeStrokeEraser;
+    private int doodleErasePaintPhase;
+    private BufferedImage doodleErasePaintLayer;
     private int coloringEraseScope;
     public void setColoringEraseScope(int scope) {flushMappedClick();coloringEraseScope=scope;}
 
@@ -2842,6 +3262,12 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     boolean isDoodleFreeEraser() {return doodleFreeEraser;}
     public void setDoodleFreeEraser(boolean enabled) {
         flushMappedClick(); cancelDoodleGesture(); doodleFreeEraser=enabled;cellZoomPanel.syncDoodleEraser(enabled);cellZoomPanel.refreshToolAttributes();updateDeletionCursor();repaint();
+    }
+    boolean isDoodleWholeStrokeEraser() { return doodleWholeStrokeEraser; }
+    void setDoodleWholeStrokeEraser(boolean enabled) {
+        if (replayReadOnly || doodleWholeStrokeEraser == enabled) return;
+        flushMappedClick(); cancelDoodleGesture(); doodleWholeStrokeEraser = enabled;
+        cellZoomPanel.refreshToolAttributes(); updateDeletionCursor(); repaint();
     }
     boolean isAnnotationPreviewHeld() {return optionPreviewHeld||middlePreviewHeld||chainRelationPreviewHeld||doodleThoughtPreviewHeld;}
     private boolean usesMappedPointer() {
@@ -2863,19 +3289,29 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         pendingMappedClick=null;
         rollbackMappedSingle();
         mappedPress=null; mappedDragging=false; mappedSecondClick=false;coloringSweep=null;
+        mappedDragSecondClick=mappedPreciseChainDouble=false;
+        mappedPressChainCandidate=pendingMappedChainCandidate=-1;
+        paletteDeletePointerCaptured=false;paletteDeletePointerGroup=-1;
         if(cellZoomPanel!=null){cellZoomPanel.refreshToolAttributes();updateDeletionCursor();}
     }
     void flushMappedClick() {
+        flushMappedClick(true);
+    }
+    private void flushMappedClick(boolean finishPointer) {
         if(mappedClickTimer!=null)mappedClickTimer.stop();
         MouseEvent click=pendingMappedClick; pendingMappedClick=null;
+        pendingMappedChainCandidate=-1;
         if(click!=null && pendingMappedTool==annotationTool) {
             if(mappedSingleRollback!=null) {
                 mappedSingleRollback=null;
                 boolean changed=mappedSingleChainChanged;mappedSingleChainChanged=false;
                 if(changed)noteUserChainReasoningChanged();
+                Runnable feedback = pendingMappedDoodleFeedback; pendingMappedDoodleFeedback = null;
+                if (feedback != null) feedback.run();
             } else performMappedClick(click,false);
-            finishAnnotationToolPointerGesture();
+            if(finishPointer)finishAnnotationToolPointerGesture();
         }
+        pendingMappedDoodleFeedback = null;
     }
     private int mappedClickInterval() {
         // Immediate singles remain reversible during this double-click window.
@@ -2892,16 +3328,43 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         if(annotationTool==AnnotationTool.DOODLE)
             return SwingUtilities.isRightMouseButton(e) || !e.isShiftDown()&&!e.isControlDown()
                     &&SwingUtilities.isLeftMouseButton(e)&&!doodleFreeEraser;
+        if(annotationTool==AnnotationTool.FREE_CHAIN && isPlainMappedClick(e))
+            return isInsideDoodleRegion(e.getPoint());
         return annotationTool==AnnotationTool.FREE_CHAIN && (candidate>=0 ||
                 !isOnGrid(e.getPoint())&&SwingUtilities.isLeftMouseButton(e)&&!e.isShiftDown()&&!e.isControlDown());
     }
-    private boolean sameMappedClick(MouseEvent a,MouseEvent b) {
-        int candidate=mappedCandidate(a);
+    private boolean isPlainMappedClick(MouseEvent e) {
+        return !e.isShiftDown()&&!e.isControlDown()&&!e.isAltDown()&&!e.isMetaDown()&&!e.isAltGraphDown();
+    }
+    private boolean sameMappedClickInput(MouseEvent a,MouseEvent b) {
         long elapsed=b.getWhen()-a.getWhen();
-        return a.getButton()==b.getButton() && a.getModifiersEx()==b.getModifiersEx()
-                && candidate==mappedCandidate(b)
-                && (candidate>=0 || a.getPoint().distance(b.getPoint())<4)
+        return pendingMappedTool==annotationTool
+                &&isInsideDoodleRegion(a.getPoint())&&isInsideDoodleRegion(b.getPoint())
+                && a.getButton()==b.getButton() && a.getModifiersEx()==b.getModifiersEx()
                 && elapsed>=0 && elapsed<=mappedClickInterval();
+    }
+    private boolean sameMappedClick(MouseEvent a,MouseEvent b) {
+        if(!sameMappedClickInput(a,b))return false;
+        if(annotationTool==AnnotationTool.FREE_CHAIN && isPlainMappedClick(a))
+            return isInsideDoodleRegion(a.getPoint())&&isInsideDoodleRegion(b.getPoint());
+        if(isColoringTool(annotationTool)&&SwingUtilities.isRightMouseButton(a)
+                &&!isOnGrid(a.getPoint())&&!isOnGrid(b.getPoint()))return true;
+        int candidate=mappedCandidate(a);
+        return candidate==mappedCandidate(b)
+                && (candidate>=0 || a.getPoint().distance(b.getPoint())<4);
+    }
+    private boolean canPairMappedDoubleDrag(MouseEvent a,MouseEvent b) {
+        if(!sameMappedClickInput(a,b)||!isPlainMappedClick(a)
+                ||!isInsideDoodleRegion(a.getPoint())||!isInsideDoodleRegion(b.getPoint()))return false;
+        return SwingUtilities.isRightMouseButton(a)
+                    &&(isColoringTool(annotationTool)||annotationTool==AnnotationTool.DOODLE)
+                || SwingUtilities.isLeftMouseButton(a)&&annotationTool==AnnotationTool.DOODLE&&!doodleFreeEraser;
+    }
+    private boolean isSelectableChainConnectionCandidate(int atom) {
+        if(atom<0)return false;
+        for(UserChainSegment segment:collectUserChainSegments())
+            if(segment.from.contains(atom/10,atom%10)||segment.to.contains(atom/10,atom%10))return true;
+        return false;
     }
     private void cancelMappedActiveGesture() {
         cancelMappedPointer();cancelDoodleGesture();clearBoxReasoningDragState();
@@ -2911,6 +3374,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     private void refreshHeldPreview() {
         boolean held=optionPreviewHeld||middlePreviewHeld;
         chainRelationPreviewHeld=annotationTool==AnnotationTool.FREE_CHAIN&&held;
+        if (!chainRelationPreviewHeld && chainPreviewChooser != null) chainPreviewChooser.setVisible(false);
         if(annotationTool==AnnotationTool.BOX_SELECTION) {
             if(held)inspectCurrentBoxGroup();else clearBoxInspection();
         }
@@ -2925,15 +3389,34 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         if(SwingUtilities.isMiddleMouseButton(e)) {
             flushMappedClick();cancelMappedActiveGesture();middlePreviewHeld=true;refreshHeldPreview();return true;
         }
-        if(isAnnotationPreviewHeld()) {
+        if(isAnnotationPreviewHeld() && annotationTool != AnnotationTool.DOODLE) {
             if(chainRelationPreviewHeld)handleChainRelationPreviewClick(e);
             return true;
         }
         if(annotationTool==AnnotationTool.BOX_SELECTION)return false;
         if(!SwingUtilities.isLeftMouseButton(e)&&!SwingUtilities.isRightMouseButton(e))return true;
         mappedSecondClick=pendingMappedClick!=null&&sameMappedClick(pendingMappedClick,e);
-        if(mappedSecondClick) {mappedClickTimer.stop();pendingMappedClick=null;rollbackMappedSingle();}
-        else flushMappedClick();
+        mappedPreciseChainDouble=mappedSecondClick&&annotationTool==AnnotationTool.FREE_CHAIN
+                &&pendingMappedChainCandidate>=0&&pendingMappedChainCandidate==mappedCandidate(e);
+        mappedDragSecondClick=!mappedSecondClick&&pendingMappedClick!=null&&canPairMappedDoubleDrag(pendingMappedClick,e);
+        if(mappedSecondClick) {
+            // Keep the first effect during the second hold. Replace it only when
+            // this gesture starts dragging, or when the double click releases.
+            mappedClickTimer.stop();pendingMappedClick=null;pendingMappedChainCandidate=-1;
+        } else if(mappedDragSecondClick) {
+            // Keep the first effect until a different-position second press actually drags.
+            mappedClickTimer.stop();
+        } else {
+            // A protected cross-target single is still part of the captured
+            // temporary-tool input sequence until the second click settles.
+            boolean continuesInput=pendingMappedClick!=null&&sameMappedClickInput(pendingMappedClick,e);
+            flushMappedClick(!continuesInput);
+            if(!usesMappedPointer()||annotationTool==AnnotationTool.BOX_SELECTION)return false;
+        }
+        int candidate=mappedCandidate(e);
+        mappedPressChainCandidate=annotationTool==AnnotationTool.FREE_CHAIN
+                &&isSelectableChainConnectionCandidate(candidate)?candidate:-1;
+        capturePaletteDeletePointer();
         mappedPress=e;mappedDragging=false;noteAnnotationToolBoardAction(true);cellZoomPanel.refreshToolAttributes();repaint();
         return true;
     }
@@ -2941,6 +3424,10 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         if(!usesMappedPointer())return false;
         if(mappedPress==null)return annotationTool!=AnnotationTool.BOX_SELECTION;
         if(!mappedDragging && mappedPress.getPoint().distance(e.getPoint())>=4) {
+            if(mappedSecondClick || mappedDragSecondClick) {
+                pendingMappedClick=null;pendingMappedChainCandidate=-1;rollbackMappedSingle();
+                mappedSecondClick=true;mappedDragSecondClick=false;
+            }
             mappedDragging=true;clearPreciseChainGesture();
             boolean erase=SwingUtilities.isRightMouseButton(mappedPress)||mappedPress.isControlDown();
             if(isColoringTool(annotationTool)) {
@@ -2979,6 +3466,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         if(annotationTool==AnnotationTool.BOX_SELECTION)return optionPreviewHeld||middlePreviewHeld;
         if(mappedPress==null){finishAnnotationToolPointerGesture();return true;}
         MouseEvent press=mappedPress;
+        if(mappedDragSecondClick) {
+            mappedDragSecondClick=false;flushMappedClick(false);
+        }
         if(mappedDragging) {
             if(coloringPress!=null){
                 if(coloringSweep!=null)coloringSweep.add(eraserSweep(coloringCurrent,e.getPoint()));
@@ -2989,6 +3479,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             if(annotationTool==AnnotationTool.DOODLE)finishDoodle(e);
             coloringPress=coloringCurrent=null;
         } else if(mappedSecondClick){
+            rollbackMappedSingle();
             if(isColoringTool(annotationTool)&&SwingUtilities.isRightMouseButton(press)&&!isOnGrid(press.getPoint()))
                 performMappedClick(press,false);
             performMappedClick(press,true);
@@ -2997,9 +3488,12 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             performMappedClick(press,false);
         } else {
             pendingMappedClick=press;pendingMappedTool=annotationTool;
+            pendingMappedChainCandidate=mappedPressChainCandidate;
             if(canApplyMappedSingleImmediately(press)) {
                 mappedSingleRollback=snapshotMappedSingle();
-                performMappedClick(press,false);
+                deferringMappedDoodleFeedback = true;
+                try { performMappedClick(press,false); }
+                finally { deferringMappedDoodleFeedback = false; }
             }
             // Native event timestamps include time already spent waiting for the EDT.
             // Do not add that backlog to the unchanged 200ms arbitration window.
@@ -3008,7 +3502,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             mappedClickTimer=new javax.swing.Timer(remaining,event->flushMappedClick());
             mappedClickTimer.setRepeats(false);mappedClickTimer.start();
         }
-        mappedPress=null;mappedDragging=false;mappedSecondClick=false;coloringSweep=null;cellZoomPanel.refreshToolAttributes();updateDeletionCursor();
+        mappedPress=null;mappedDragging=false;mappedSecondClick=false;coloringSweep=null;
+        mappedPreciseChainDouble=false;mappedPressChainCandidate=-1;
+        cellZoomPanel.refreshToolAttributes();updateDeletionCursor();
         if(pendingMappedClick==null)finishAnnotationToolPointerGesture();repaint();return true;
     }
     private void performMappedClick(MouseEvent e,boolean twice) {
@@ -3025,12 +3521,19 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             int key=candidateOnly?candidate:cell;
             Color color=cellZoomPanel.getPrimaryColor();
             if(erase?!map.containsKey(key):color.equals(map.get(key)))return;
+            if(erase&&!matchesPaletteDeleteColor(map.get(key)))return;
             pushColoringUndo();if(erase)map.remove(key);else map.put(key,color);
             updateCellZoomPanel();mainFrame.check();repaint();
         } else if(annotationTool==AnnotationTool.FREE_CHAIN) {
             if(preciseChainCandidate>=0) {
                 if(preciseChainDelete!=erase){clearPreciseChainGesture();return;}
                 pickPreciseChainEndpoint(e,erase);return;
+            }
+            if(twice&&isPlainMappedClick(e)) {
+                if(mappedPreciseChainDouble)pickPreciseChainEndpoint(e,erase);
+                else if(erase)removeLastUserChainNode();
+                else flipLatestUserChainConnection();
+                return;
             }
             if(twice&&candidate>=0) {
                 if(e.isShiftDown()&&!erase) {
@@ -3040,11 +3543,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             else if(candidate<0) {
                 if(isOnGrid(e.getPoint()))return;
                 if(e.isShiftDown()) {if(activeUserChain!=null)finishActiveUserChain(activeUserChain.isClosed(),true,true);}
-                else if(twice) {
-                    UserChain last=latestChainWithEdge();
-                    if(last!=null){Map<UserChain,java.util.Set<Integer>> targets=new java.util.IdentityHashMap<>();
-                        targets.put(last,java.util.Collections.singleton(last.getStrongRelations().size()-1));flipChainEdges(targets);}
-                } else toggleNextUserChainStrong();
+                else if(twice)flipLatestUserChainConnection();
+                else toggleNextUserChainStrong();
             } else handleFreeChainMousePressed(mappedEvent(e,MouseEvent.BUTTON1,e.getModifiersEx()&~MouseEvent.ALT_DOWN_MASK));
         } else if(annotationTool==AnnotationTool.DOODLE) {
             if(e.isMetaDown()) {
@@ -3067,16 +3567,18 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     }
     private void eraseMappedColoring(java.awt.Shape rectangle) {
         List<Integer> cells=new ArrayList<>(),candidates=new ArrayList<>();
-        for(int cell:coloringMap.keySet())if(coloringEraseScope!=2&&rectangle.contains(new Point2D.Double(
+        for(int cell:coloringMap.keySet())if(matchesPaletteDeleteColor(coloringMap.get(cell))&&coloringEraseScope!=2&&rectangle.contains(new Point2D.Double(
                 getX(cell/9,cell%9)+cellSize/2.0,getY(cell/9,cell%9)+cellSize/2.0)))cells.add(cell);
-        for(int atom:coloringCandidateMap.keySet())if(coloringEraseScope!=1&&rectangle.contains(getCandKoord(atom/10,atom%10,cellSize)))candidates.add(atom);
+        for(int atom:coloringCandidateMap.keySet())if(matchesPaletteDeleteColor(coloringCandidateMap.get(atom))&&coloringEraseScope!=1&&rectangle.contains(getCandKoord(atom/10,atom%10,cellSize)))candidates.add(atom);
         if(cells.isEmpty()&&candidates.isEmpty())return;
         pushColoringUndo();for(int cell:cells)coloringMap.remove(cell);for(int atom:candidates)coloringCandidateMap.remove(atom);
         updateCellZoomPanel();mainFrame.check();repaint();
     }
     private void removeMostRecentColoring() {
         observeColoringOrder();if(coloringOrder.isEmpty())return;
-        String last=null;for(String key:coloringOrder.keySet())last=key;
+        String last=null;for(Map.Entry<String,Color> entry:coloringOrder.entrySet())
+            if(matchesPaletteDeleteColor(entry.getValue()))last=entry.getKey();
+        if(last==null)return;
         pushColoringUndo();int key=Integer.parseInt(last.substring(1));
         if(last.charAt(0)=='c')coloringMap.remove(key);else coloringCandidateMap.remove(key);
         observeColoringOrder();updateCellZoomPanel();mainFrame.check();repaint();
@@ -3124,7 +3626,10 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         }
         StringBuilder key=new StringBuilder("ink:").append(stroke.getColor()).append(':').append(stroke.getWidthFactor());
         if(stroke.isCandidateAnchored())key.append(":candidate:").append(stroke.getAnchorCell()).append(':').append(stroke.getAnchorDigit());
-        for(DoodlePoint point:stroke.getPoints())key.append(':').append(point.getX()).append(',').append(point.getY());
+        // Session-only identity: canonical bits keep exact coordinate equality without
+        // repeatedly formatting thousands of floating-point coordinates for a proof.
+        for(int i=0;i<stroke.pointCount();i++)key.append(':').append(Double.doubleToLongBits(stroke.pointX(i)))
+                .append(',').append(Double.doubleToLongBits(stroke.pointY(i)));
         String value=key.toString();
         if(paintingDoodleTimeKeys!=null)paintingDoodleTimeKeys.put(stroke,value);
         return value;
@@ -3135,7 +3640,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             return;
         }
         Map<String,String> objects=new java.util.HashMap<>();
-        for(DoodleStroke stroke:doodleStrokes)objects.put(doodleTimeKey(stroke),"ink");
+        for(DoodleStroke stroke:activeDoodleMarks())objects.put(doodleTimeKey(stroke),"ink");
         for(int group=0;group<boxReasoningGroups.size();group++)for(int i=0;i<boxReasoningGroups.get(group).size();i++)
             objects.put("box:"+group+":"+boxReasoningGroups.get(group).get(i),Options.getInstance().getColoringColors()[group*2].toString());
         for(Map.Entry<Integer,Color> e:coloringMap.entrySet())objects.put("cell:"+e.getKey(),e.getValue().toString());
@@ -3191,8 +3696,25 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         return annotationPaintLayer==2?later:!later;
     }
     private Color annotationColor(String key,Color color,Color background) {
-        if(step==null||isForegroundAnnotation(key))return color;
-        return fadedAnnotationColor(color,background);
+        float opacity = annotationFocusOpacity(AnnotationTool.CELL_COLORING, color);
+        if (key.startsWith("cell:")) opacity *= 0.28f;
+        if (step != null && !isForegroundAnnotation(key)) opacity = Math.min(opacity, BACKGROUND_ANNOTATION_ALPHA);
+        return blendAnnotationColor(color, background, opacity);
+    }
+    private Color blendAnnotationColor(Color color, Color background, float opacity) {
+        if (opacity >= 1f) return color;
+        return new Color(Math.round(color.getRed()*opacity+background.getRed()*(1-opacity)),
+                Math.round(color.getGreen()*opacity+background.getGreen()*(1-opacity)),
+                Math.round(color.getBlue()*opacity+background.getBlue()*(1-opacity)));
+    }
+    private float annotationFocusOpacity(AnnotationTool owner, Color color) {
+        // Mouse mode is the neutral display, not a third focus strength. Keep the
+        // same source ink in every tool/group; active roles have their own outlines.
+        // Hint chronology and false-candidate fading remain independent below.
+        return 1f;
+    }
+    private float annotationOpacityFor(AnnotationTool owner, Color color) {
+        return Math.min(annotationOpacity(), annotationFocusOpacity(owner, color));
     }
     private Color fadedAnnotationColor(Color color,Color background) {
         float a=BACKGROUND_ANNOTATION_ALPHA;
@@ -3209,13 +3731,22 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
                 if(!annotationTimeline.isLater("candidate:"+entry.getKey()))continue;
                 int cell=entry.getKey()/10,digit=entry.getKey()%10;
                 if(!sudoku.isCandidate(cell,digit))continue;
-                double third=cellSize/3.0;
-                double x=getX(cell/9,cell%9)+((digit-1)%3+.5)*third;
-                double y=getY(cell/9,cell%9)+((digit-1)/3+.5)*third;
-                g.setColor(entry.getValue());g.fill(new java.awt.geom.Rectangle2D.Double(x-diameter/2,y-diameter/2,diameter,diameter));
-                g.setColor(appearance.getReadableForeground(entry.getValue(),appearance.getCandidateColor()));
-                java.awt.FontMetrics fm=g.getFontMetrics();
-                g.drawString(Integer.toString(digit),(float)(x-fm.stringWidth(Integer.toString(digit))/2.0),(float)(y+(fm.getAscent()-fm.getDescent())/2.0));
+                Point2D.Double center = getCandKoord(cell, digit, cellSize);
+                Color background = candidateAnnotationBackground(cell, digit, appearance);
+                Color display = annotationColor("candidate:"+entry.getKey(), entry.getValue(), background);
+                Graphics2D tile = (Graphics2D)g.create();
+                try {
+                    if (nativeCandidateMarkerSizes[entry.getKey()] > 0) {
+                        java.awt.geom.Area outside = new java.awt.geom.Area(new java.awt.Rectangle(0,0,getWidth(),getHeight()));
+                        outside.subtract(new java.awt.geom.Area(nativeCandidateShape(cell,digit,appearance)));
+                        tile.clip(outside);
+                    }
+                    drawCandidateColorTile(tile, cell, digit, diameter, display, background, appearance, false);
+                    if (nativeCandidateMarkerSizes[entry.getKey()] == 0) {
+                        tile.setColor(appearance.getReadableForeground(display,appearance.getCandidateColor()));
+                        drawCenteredCandidateGlyph(tile, cell, digit, center, false);
+                    }
+                } finally { tile.dispose(); }
             }
         }finally{g.dispose();}
     }
@@ -3237,6 +3768,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         int first=preciseChainCandidate;clearPreciseChainGesture();
         UserChainSegment target=null;int count=0;
         for(UserChainSegment segment:collectUserChainSegments()) {
+            if(deleting&&!matchesPaletteDeleteColor(segment.capturedColor))continue;
             boolean forward=segment.from.contains(first/10,first%10)&&segment.to.contains(cell,digit);
             boolean reverse=segment.to.contains(first/10,first%10)&&segment.from.contains(cell,digit);
             if(first!=picked && (forward||reverse)){target=segment;count++;}
@@ -3253,6 +3785,13 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         if(activeUserChain!=null&&!activeUserChain.getStrongRelations().isEmpty())return activeUserChain;
         for(int i=userChains.size()-1;i>=0;i--)if(!userChains.get(i).getStrongRelations().isEmpty())return userChains.get(i);
         return null;
+    }
+    private void flipLatestUserChainConnection() {
+        UserChain last=latestChainWithEdge();
+        if(last==null)return;
+        Map<UserChain,java.util.Set<Integer>> targets=new java.util.IdentityHashMap<>();
+        targets.put(last,java.util.Collections.singleton(last.getStrongRelations().size()-1));
+        flipChainEdges(targets);
     }
     private void synchronizeNextChainEdge() {
         UserChain last=latestChainWithEdge();
@@ -3292,13 +3831,14 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         noteUserChainReasoningChanged();mainFrame.check();repaint();
     }
     private void deleteExactChainEdges(Map<UserChain,java.util.Set<Integer>> targets) {
+        filterPaletteChainEdges(targets);
         if(targets.isEmpty())return;
         pushUserChainUndo();
         for(Map.Entry<UserChain,java.util.Set<Integer>> entry:targets.entrySet()) {
             UserChain original=entry.getKey();int insert=userChains.indexOf(original);
             if(insert<0)insert=userChains.size();userChains.remove(original);
             if(activeUserChain==original)activeUserChain=null;
-            List<UserChain> fragments=UserChainCuts.removeEdges(original,entry.getValue());
+            List<UserChain> fragments=cutPaletteChain(original,entry.getValue(),java.util.Collections.<String,Set<Integer>>emptyMap());
             for(UserChain fragment:fragments) {
                 fragment.setSourceId(nextUserChainSourceId++);
                 if(fragment.isActive())activeUserChain=fragment;else userChains.add(Math.min(insert++,userChains.size()),fragment);
@@ -3342,26 +3882,32 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         java.awt.Rectangle rectangle=dragRectangle(chainDeleteStart,event.getPoint());
         if(rectangle.width<1)rectangle.width=1;if(rectangle.height<1)rectangle.height=1;
         Map<UserChain,java.util.Set<Integer>> targets=chainEdgesInRectangle(rectangle);
+        filterPaletteChainEdges(targets);
         List<UserChain> all=new ArrayList<UserChain>(userChains);
         if(activeUserChain!=null)all.add(activeUserChain);
-        Map<String,java.util.Set<Integer>> members=new java.util.HashMap<String,java.util.Set<Integer>>();
-        for(UserChain chain:all)for(UserChainNode n:chain.getNodes())if(n.grouped() || chain.getNodes().size()==1) {
+        Map<UserChain,Map<String,Set<Integer>>> members=new java.util.IdentityHashMap<>();
+        for(UserChain chain:all)for(UserChainNode n:chain.getNodes())if((n.grouped() || chain.getNodes().size()==1)
+                &&matchesPaletteDeleteColor(n.getColor())&&!hasProtectedPaletteRelation(chain,n)) {
             java.util.Set<Integer> hit=new java.util.HashSet<Integer>();
             for(int member:n.atoms())if(rectangle.contains(getCandKoord(member/10,member%10,cellSize)))hit.add(member);
-            if(!hit.isEmpty())members.put(n.key(),hit);
+            if(!hit.isEmpty()) {
+                if(!members.containsKey(chain))members.put(chain,new java.util.HashMap<String,Set<Integer>>());
+                members.get(chain).put(n.key(),hit);
+            }
         }
         if(!targets.isEmpty() || !members.isEmpty()) {
             pushUserChainUndo();
             for(UserChain original:all) {
                 java.util.Set<Integer> removed=targets.get(original);
-                boolean affected=removed!=null;
-                for(UserChainNode n:original.getNodes())affected |= members.containsKey(n.key());
+                Map<String,Set<Integer>> hitMembers=members.get(original);
+                boolean affected=removed!=null||hitMembers!=null;
                 if(!affected)continue;
                 if(removed==null)removed=new java.util.HashSet<Integer>();
+                if(hitMembers==null)hitMembers=java.util.Collections.emptyMap();
                 int insert=userChains.indexOf(original);if(insert<0)insert=userChains.size();
                 userChains.remove(original);if(activeUserChain==original)activeUserChain=null;
                 if(original.getSourceId()==confirmedUserChainSourceId)confirmedUserChainSourceId=0;
-                for(UserChain fragment:UserChainCuts.removeMembersAndEdges(original,removed,members)) {
+                for(UserChain fragment:cutPaletteChain(original,removed,hitMembers)) {
                     fragment.setSourceId(nextUserChainSourceId++);
                     if(fragment.isActive())activeUserChain=fragment;else userChains.add(Math.min(insert++,userChains.size()),fragment);
                 }
@@ -3370,6 +3916,48 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             noteUserChainReasoningChanged();mainFrame.check();
         }
         chainDeleteStart=chainDeleteCurrent=null;repaint();return true;
+    }
+
+    private Color paletteChainEdgeColor(UserChain chain,int edge) {
+        return edge<chain.getRelationColors().size()?chain.getRelationColors().get(edge):null;
+    }
+
+    private void filterPaletteChainEdges(Map<UserChain,Set<Integer>> targets) {
+        if(paletteDeleteGroup()<0)return;
+        java.util.Iterator<Map.Entry<UserChain,Set<Integer>>> iterator=targets.entrySet().iterator();
+        while(iterator.hasNext()) {
+            Map.Entry<UserChain,Set<Integer>> entry=iterator.next();
+            Set<Integer> keep=new HashSet<Integer>(entry.getValue());
+            keep.removeIf(edge->!matchesPaletteDeleteColor(paletteChainEdgeColor(entry.getKey(),edge)));
+            if(keep.isEmpty())iterator.remove();else entry.setValue(keep);
+        }
+    }
+
+    private boolean hasProtectedPaletteRelation(UserChain chain,UserChainNode node) {
+        if(paletteDeleteGroup()<0)return false;
+        int n=chain.getNodes().size();
+        for(int edge=0;edge<chain.getStrongRelations().size();edge++)
+            if((chain.getNodes().get(edge)==node||chain.getNodes().get((edge+1)%n)==node)
+                    &&!matchesPaletteDeleteColor(paletteChainEdgeColor(chain,edge)))return true;
+        return false;
+    }
+
+    private List<UserChain> cutPaletteChain(UserChain original,Set<Integer> edges,Map<String,Set<Integer>> members) {
+        List<UserChain> fragments=members.isEmpty()?UserChainCuts.removeEdges(original,edges)
+                :UserChainCuts.removeMembersAndEdges(original,edges,members);
+        if(paletteDeleteGroup()<0)return fragments;
+        // Native cuts remove orphan highlights. A scoped cut retains other colors'
+        // nodes even when their last connection belonged to the erased group.
+        for(UserChainNode node:original.getNodes())if(!matchesPaletteDeleteColor(node.getColor())) {
+            boolean retained=false;
+            for(UserChain fragment:fragments)for(UserChainNode kept:fragment.getNodes())
+                retained|=kept.key().equals(node.key())&&java.util.Objects.equals(kept.getColor(),node.getColor());
+            if(!retained) {
+                UserChain orphan=new UserChain();orphan.getNodes().add(node.copy());
+                orphan.setAnalysisResult("PENDING_NATIVE_MATCH");fragments.add(orphan);
+            }
+        }
+        return fragments;
     }
 
     private void collectHitChainEdge(Map<UserChain,java.util.Set<Integer>> hits,UserChain chain,UserChainSegment segment) {
@@ -3409,6 +3997,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     private void cancelDoodleGesture() {
         activeDoodleStroke = null; doodleGesture = DoodleGesture.NONE;
         doodleGestureStart = doodleGestureCurrent = null; doodleErasePreview = null;
+        doodleEraseGhosts.clear();
         doodleTapCandidateMarkKind = DoodleStroke.MARK_NONE;
         doodleGestureThoughtGroup = -1;
     }
@@ -3416,7 +4005,6 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	private boolean beginDoodle(MouseEvent event) {
 		if (annotationTool != AnnotationTool.DOODLE) return false;
 		if (!isInsideDoodleRegion(event.getPoint())) return true;
-		if (doodleThoughtPreviewHeld) return true;
 		if (SwingUtilities.isLeftMouseButton(event) && event.isMetaDown()) {
 			if (!event.isAltDown() && !event.isShiftDown() && !event.isControlDown()) {
 				noteAnnotationToolBoardAction(true);
@@ -3446,33 +4034,361 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			Color color = event.isAltDown() ? cellZoomPanel.getSecondaryColor() : cellZoomPanel.getPrimaryColor();
 			activeDoodleStroke = new DoodleStroke(color, doodleWidthFactor);
 			activeDoodleStroke.setThoughtGroup(doodleGestureThoughtGroup);
-			activeDoodleStroke.getPoints().add(toDoodlePoint(event.getPoint()));
+			appendDoodlePoint(activeDoodleStroke, event.getPoint());
         }
         repaint();return true;
+    }
+
+    private String derivedDoodleAnalysisKey;
+    private DoodleDerivedBasis.Analysis derivedDoodleAnalysisCache;
+    private String doodleContradictionKey;
+    private DoodleContradictionBasis.Analysis[] doodleContradictionCache;
+    private int lastDisplayedDoodleRefutationGroup = -1;
+    private int lastDisplayedDoodleConsensusGroup = -1;
+    private int lastDisplayedDoodleCompletionGroup = -1;
+    private String doodleCompletionKey;
+    private DoodleCompletionBasis.Analysis[] doodleCompletionCache;
+    private String doodleConsensusKey;
+    private DoodleConsensusBasis.Analysis[] doodleConsensusCache;
+    private final Set<Integer> doodleDisplayProtectedCandidates = new HashSet<Integer>();
+
+    private DoodleContradictionBasis.Analysis doodleContradiction(int group, boolean fresh) {
+        StringBuilder key = new StringBuilder();
+        key.append(sudoku.getStatus()).append(':');
+        for (int cell = 0; cell < 81; cell++) key.append(sudoku.getValue(cell)).append(':').append(sudoku.getCell(cell)).append(';');
+        for (DoodleStroke mark : doodleStrokes) if (!mark.isProofOnly() && !mark.isRefutationResult())
+            key.append(mark.getThoughtGroup()).append(':').append(mark.getAnchorCell()).append(':')
+                    .append(mark.getAnchorDigit()).append(':').append(mark.getCandidateMarkKind()).append(':')
+                    .append(mark.isHypothesisStart()).append(':').append(mark.getHypothesisGroupKind()).append(':').append(mark.getHypothesisConditionId()).append(';');
+        String current = key.toString();
+        if (fresh || doodleContradictionCache == null || !current.equals(doodleContradictionKey)) {
+            doodleContradictionCache = new DoodleContradictionBasis.Analysis[6];
+            for (int color = 0; color < 6; color++)
+                doodleContradictionCache[color] = DoodleContradictionBasis.analyze(sudoku, doodleStrokes, color);
+            doodleContradictionKey = current;
+        }
+        return group >= 0 && group < 6 ? doodleContradictionCache[group] : new DoodleContradictionBasis.Analysis(group);
+    }
+
+    private DoodleContradictionBasis.Analysis currentDoodleContradiction() {
+        return doodleContradiction(cellZoomPanel == null ? -1 : cellZoomPanel.getPaletteGroup(), false);
+    }
+
+    private DoodleContradictionBasis.Analysis displayedDoodleContradiction() {
+        return doodleErasePreview != null && !replayReadOnly
+                ? DoodleContradictionBasis.analyze(sudoku, doodleErasePreview, cellZoomPanel.getPaletteGroup())
+                : currentDoodleContradiction();
+    }
+
+    private DoodleConsensusBasis.Analysis doodleConsensus(int group, boolean fresh) {
+        doodleContradiction(group, fresh);
+        if (fresh || doodleConsensusCache == null || !doodleContradictionKey.equals(doodleConsensusKey)) {
+            doodleConsensusCache = new DoodleConsensusBasis.Analysis[6];
+            doodleConsensusKey = doodleContradictionKey;
+        }
+        if (group < 0 || group > 5) return new DoodleConsensusBasis.Analysis(group);
+        if (doodleConsensusCache[group] == null)
+            doodleConsensusCache[group] = DoodleConsensusBasis.analyze(sudoku, doodleStrokes, group);
+        return doodleConsensusCache[group];
+    }
+
+    private DoodleConsensusBasis.Analysis displayedDoodleConsensus() {
+        return doodleErasePreview != null && !replayReadOnly
+                ? DoodleConsensusBasis.analyze(sudoku, doodleErasePreview, cellZoomPanel.getPaletteGroup())
+                : doodleConsensus(cellZoomPanel.getPaletteGroup(), false);
+    }
+
+    private DoodleCompletionBasis.Analysis doodleCompletion(int group, boolean fresh) {
+        doodleContradiction(group, fresh);
+        if (fresh || doodleCompletionCache == null || !doodleContradictionKey.equals(doodleCompletionKey)) {
+            doodleCompletionCache = new DoodleCompletionBasis.Analysis[6];
+            doodleCompletionKey = doodleContradictionKey;
+        }
+        if (group < 0 || group > 5) return new DoodleCompletionBasis.Analysis(group);
+        if (doodleCompletionCache[group] == null)
+            doodleCompletionCache[group] = DoodleCompletionBasis.analyze(sudoku, doodleStrokes, group);
+        return doodleCompletionCache[group];
+    }
+
+    private DoodleCompletionBasis.Analysis displayedDoodleCompletion() {
+        return doodleErasePreview == null ? doodleCompletion(cellZoomPanel.getPaletteGroup(), false)
+                : DoodleCompletionBasis.analyze(sudoku, doodleErasePreview, cellZoomPanel.getPaletteGroup());
+    }
+
+    boolean hasDoodleCompletion() {
+        return annotationTool == AnnotationTool.DOODLE && !replayReadOnly
+                && doodleCompletion(cellZoomPanel.getPaletteGroup(), false).complete();
+    }
+
+    private List<DoodleStroke> doodleCompletionMarks(DoodleCompletionBasis.Analysis analysis) {
+        List<DoodleStroke> result = new ArrayList<DoodleStroke>();
+        for (DoodleStroke mark : activeDoodleMarks()) if (analysis.selects(mark)) {
+            DoodleStroke copy = mark.copy(); copy.setConclusionOutlined(true); copy.setConclusionSourceMask(0);
+            result.add(copy);
+        }
+        return result;
+    }
+
+    private List<DoodleStroke> doodleConsensusMarks(DoodleConsensusBasis.Analysis analysis) {
+        List<DoodleStroke> result = new ArrayList<DoodleStroke>();
+        for (DoodleStroke mark : activeDoodleMarks()) if (mark.getThoughtGroup() == analysis.group && analysis.selects(mark)) {
+            DoodleStroke copy = mark.copy(); copy.setConclusionOutlined(true);
+            copy.setConclusionSourceMask(analysis.sourceMask(mark.getAnchorCell()*10+mark.getAnchorDigit(), mark.getCandidateMarkKind()));
+            result.add(copy);
+        }
+        return result;
+    }
+
+    private List<DoodleStroke> doodleDisplaySourceMarks() {
+        if (doodleErasePreview == null) return activeDoodleMarks();
+        List<DoodleStroke> result = new ArrayList<DoodleStroke>();
+        for (DoodleStroke mark : doodleErasePreview) if (!mark.isProofOnly() && !mark.isRefutationResult()) result.add(mark);
+        return result;
+    }
+
+    /** Selection cancellation belongs to the authored edit's existing undo snapshot. */
+    private void reconcileDoodleRefutations() {
+        for (int group = 0; group < 6; group++) if (doodleContradiction(group, false).hasRefutation() || doodleConsensus(group, false).hasConclusions())
+            for (DoodleStroke mark : doodleStrokes) if (!mark.isProofOnly() && !mark.isRefutationResult()
+                    && (mark.getThoughtGroup() == group || (mark.getConclusionSourceMask() & 1 << group) != 0)) {
+                mark.setConclusionOutlined(false); mark.setConclusionSourceMask(0);
+            }
+    }
+
+    private List<DoodleStroke> doodleRefutationMarks(DoodleContradictionBasis.Analysis analysis) {
+        List<DoodleStroke> result = new ArrayList<DoodleStroke>();
+        if (!analysis.hasRefutation()) return result;
+        for (int atom : analysis.starts) {
+            DoodleStroke original = null, existing = null;
+            for (DoodleStroke mark : doodleDisplaySourceMarks()) if (mark.isStandardCandidateMark()
+                    && mark.getThoughtGroup() == analysis.group
+                    && mark.getAnchorCell() * 10 + mark.getAnchorDigit() == atom) {
+                if (mark.isHypothesisStart()) original = mark;
+                if (mark.getCandidateMarkKind() == analysis.conclusionKind()) existing = mark;
+            }
+            if (original == null) continue;
+            DoodleStroke conclusion = existing == null ? createCandidateHypothesisMark(atom / 10, atom % 10,
+                    analysis.conclusionKind(), analysis.group, original.getColor()) : existing.copy();
+            if (existing == null) {
+                conclusion.setWidthFactor(original.getWidthFactor());
+                double radius = 0;
+                for (int i = 0; i < original.pointCount(); i++) radius = Math.max(radius, Math.max(Math.abs(original.pointX(i)), Math.abs(original.pointY(i))));
+                if (radius > 0) {
+                    conclusion.getPoints().clear();
+                    if (analysis.conclusionKind() == DoodleStroke.MARK_FALSE_CROSS) {
+                        conclusion.addPoint(-radius, -radius); conclusion.addPoint(radius, radius);
+                        conclusion.addPoint(radius, -radius); conclusion.addPoint(-radius, radius);
+                    } else for (int i = 0; i <= 48; i++) {
+                        double angle = 2 * Math.PI * i / 48;
+                        conclusion.addPoint(radius * Math.cos(angle), radius * Math.sin(angle));
+                    }
+                }
+            }
+            conclusion.setHypothesisStart(false); conclusion.setHypothesisConditionId(0);
+            conclusion.setHypothesisGroupKind(analysis.isOrConclusion() ? 1 : 0);
+            conclusion.setDerivedSourceId(0); conclusion.setProofOnly(false);
+            conclusion.setConclusionOutlined(true); conclusion.setConclusionSourceMask(0);
+            conclusion.setRefutationResult(true);
+            conclusion.setContradictionWitness(existing != null && analysis.witnesses(existing));
+            result.add(conclusion);
+        }
+        return result;
+    }
+
+    /** Display copies keep original source colors; red and automatic selection are presentation roles. */
+    private List<DoodleStroke> doodlePresentationInk(List<DoodleStroke> originals, DoodleContradictionBasis.Analysis analysis) {
+        return doodlePresentationInk(originals, analysis, true);
+    }
+
+    private List<DoodleStroke> doodlePresentationInk(List<DoodleStroke> originals,
+            DoodleContradictionBasis.Analysis analysis, boolean includeConsensus) {
+        if (replayReadOnly || annotationTool != AnnotationTool.DOODLE) return originals;
+        DoodleConsensusBasis.Analysis consensus = includeConsensus && !analysis.hasRefutation()
+                ? displayedDoodleConsensus() : new DoodleConsensusBasis.Analysis(analysis.group);
+        DoodleCompletionBasis.Analysis completion = !analysis.hasRefutation()
+                ? displayedDoodleCompletion() : new DoodleCompletionBasis.Analysis(analysis.group);
+        List<DoodleStroke> result = new ArrayList<DoodleStroke>();
+        for (DoodleStroke original : originals) {
+            if (original.isRefutationResult()) continue;
+            DoodleStroke copy = original.copy();
+            copy.setContradictionWitness(analysis.witnesses(original));
+            if (analysis.hasRefutation() || consensus.hasConclusions() || completion.complete()) { copy.setConclusionOutlined(false); copy.setConclusionSourceMask(0); }
+            if (completion.selects(original)) { copy.setConclusionOutlined(true); copy.setConclusionSourceMask(0); }
+            else if (!completion.complete() && consensus.selects(original) && (consensus.sourceMask(original.getAnchorCell()*10+original.getAnchorDigit(), original.getCandidateMarkKind()) & 1<<original.getThoughtGroup()) != 0) {
+                copy.setConclusionOutlined(true);
+                copy.setConclusionSourceMask(consensus.sourceMask(original.getAnchorCell()*10+original.getAnchorDigit(), original.getCandidateMarkKind()));
+            }
+            result.add(copy);
+        }
+        result.addAll(doodleRefutationMarks(analysis)); return result;
+    }
+
+    private static Color doodleDisplayColor(DoodleStroke stroke) {
+        return stroke.isContradictionWitness() ? new Color(255, 0, 0) : stroke.getColor();
+    }
+
+    private List<DoodleStroke> activeDoodleMarks() {
+        List<DoodleStroke> result = new ArrayList<DoodleStroke>();
+        for (DoodleStroke mark : doodleStrokes) if (!mark.isProofOnly() && !mark.isRefutationResult()) result.add(mark);
+        return result;
+    }
+
+    private List<DoodleStroke> interactiveDoodleMarks() {
+        return visibleDoodleInk(activeDoodleMarks(), currentDoodleSources());
+    }
+
+    private DoodleDerivedBasis.Analysis derivedDoodleAnalysis(boolean fresh) {
+        List<DoodleStroke> active = activeDoodleMarks();
+        StringBuilder key = new StringBuilder();
+        for (int cell = 0; cell < 81; cell++) key.append(sudoku.getValue(cell)).append(':').append(sudoku.getCell(cell)).append(';');
+        for (DoodleStroke mark : active) key.append(mark.getThoughtGroup()).append(':')
+                .append(mark.getAnchorCell()).append(':').append(mark.getAnchorDigit()).append(':')
+                .append(mark.getCandidateMarkKind()).append(':').append(mark.isHypothesisStart()).append(';');
+        String current = key.toString();
+        if (fresh || derivedDoodleAnalysisCache == null || !current.equals(derivedDoodleAnalysisKey)) {
+            derivedDoodleAnalysisCache = DoodleDerivedBasis.analyze(sudoku, active);
+            derivedDoodleAnalysisKey = current;
+        }
+        return derivedDoodleAnalysisCache;
+    }
+
+    List<DoodleDerivedBasis.CircleReduction> doodleCircleReductions() {
+        List<DoodleDerivedBasis.CircleReduction> result = new ArrayList<DoodleDerivedBasis.CircleReduction>();
+        if (annotationTool != AnnotationTool.DOODLE || replayReadOnly || cellZoomPanel == null) return result;
+        int group = cellZoomPanel.getPaletteGroup();
+        for (DoodleDerivedBasis.CircleReduction reduction : derivedDoodleAnalysis(false).getCircleReductions())
+            if (reduction.evidenceForGroup(group) != null) result.add(reduction);
+        return result;
+    }
+
+    /** One explicit action adopts a smaller OR in the current color; no solver certificate. */
+    boolean adoptDoodleCircleReduction(String resultKey, int sourceGroup, int branchMask) {
+        flushMappedClick();
+        if (annotationTool != AnnotationTool.DOODLE || replayReadOnly || cellZoomPanel == null) return false;
+        int group = cellZoomPanel.getPaletteGroup();
+        DoodleDerivedBasis.CircleReduction chosen = null;
+        DoodleDerivedBasis.Evidence evidence = null;
+        for (DoodleDerivedBasis.CircleReduction reduction : derivedDoodleAnalysis(true).getCircleReductions()) {
+            if (!reduction.getResult().key().equals(resultKey)) continue;
+            for (DoodleDerivedBasis.Evidence entry : reduction.getEvidence())
+                if (entry.getSourceGroup() == sourceGroup && entry.getBranchGroupMask() == branchMask
+                        && entry.usesBranchGroup(group)) { chosen = reduction; evidence = entry; break; }
+            if (chosen != null) break;
+        }
+        if (chosen == null) return false;
+        int sourceId = 1;
+        for (DoodleStroke mark : doodleStrokes) sourceId = Math.max(sourceId, mark.getDerivedSourceId() + 1);
+        List<DoodleStroke> support = new ArrayList<DoodleStroke>();
+        Set<String> supportKeys = new HashSet<String>();
+        for (DoodleStroke mark : doodleStrokes) {
+            int owner = mark.getThoughtGroup();
+            if (owner < 0 || (evidence.getProofGroupMask() & 1 << owner) == 0
+                    || !supportKeys.add(doodleTimeKey(mark))) continue;
+            DoodleStroke copy = mark.copy();
+            copy.setThoughtGroup(group); copy.setProofOnly(true); copy.setDerivedSourceId(sourceId);
+            copy.setConclusionOutlined(false); copy.setConclusionSourceMask(0);
+            support.add(copy);
+        }
+        pushDoodleUndo();
+        for (int index = doodleStrokes.size() - 1; index >= 0; index--)
+            if (doodleStrokes.get(index).getThoughtGroup() == group) doodleStrokes.remove(index);
+        for (int atom : chosen.getResult().atoms()) {
+            DoodleStroke mark = createCandidateHypothesisMark(atom / 10, atom % 10,
+                    DoodleStroke.MARK_TRUE_CIRCLE, group, cellZoomPanel.getPrimaryColor());
+            mark.setHypothesisStart(true); mark.setDerivedSourceId(sourceId);
+            doodleStrokes.add(mark);
+        }
+        doodleStrokes.addAll(support);
+        doodleHypothesisConsumedMask |= 1 << group;
+        finishDoodleHypothesisEntry(); reconcileDoodleComposition();
+        mainFrame.check(); repaint(); return true;
     }
 
     public boolean isDoodleHypothesisEntryActive() { return doodleHypothesisEntryMode != 0; }
     public int getDoodleHypothesisEntryMode() { return doodleHypothesisEntryMode; }
     public void finishDoodleHypothesisEntry() {
         doodleHypothesisEntryMode = 0; doodleHypothesisEntryGroup = -1;
+        pendingDoodleHypothesisEntryFinish = false;
+        clearPendingDoodleHypothesisTap();
         if (mainFrame != null) mainFrame.doodleHypothesisStateChanged();
     }
     public void toggleDoodleHypothesisEntry() {
         flushMappedClick();
+        clearPendingDoodleHypothesisTap();
         if (annotationTool != AnnotationTool.DOODLE || replayReadOnly) return;
         if (isDoodleHypothesisEntryActive()) finishDoodleHypothesisEntry();
         else { doodleHypothesisEntryMode = 1; doodleHypothesisEntryGroup = cellZoomPanel.getPaletteGroup();
             mainFrame.doodleHypothesisStateChanged(); }
     }
+    private boolean handleDoodleHypothesisKeyPressed(KeyEvent event) {
+        event.consume();
+        if (doodleHypothesisGDown) return true;
+        flushMappedClick();
+        clearPendingAnnotationToolTap();
+        int group = cellZoomPanel.getPaletteGroup();
+        long sinceLastTap = event.getWhen() - pendingDoodleHypothesisTapReleasedAt;
+        doodleHypothesisGDoubleTap = pendingDoodleHypothesisTapGroup == group
+                && sinceLastTap >= 0L && sinceLastTap <= ANNOTATION_TOOL_DOUBLE_TAP_MILLIS
+                && currentAnnotationToolTapBoardSignature().equals(pendingDoodleHypothesisTapBoardSignature);
+        clearPendingDoodleHypothesisTap();
+        doodleHypothesisGDown = true;
+        doodleHypothesisGPressedAt = event.getWhen();
+        doodleHypothesisGUsedBoard = false;
+        doodleHypothesisEntryBeforeG = isDoodleHypothesisEntryActive();
+        pendingDoodleHypothesisEntryFinish = false;
+        doodleHypothesisEntryMode = 1; doodleHypothesisEntryGroup = group;
+        mainFrame.doodleHypothesisStateChanged();
+        return true;
+    }
+    private boolean handleDoodleHypothesisKeyReleased(KeyEvent event) {
+        if (event.getKeyCode() != KeyEvent.VK_G || !doodleHypothesisGDown) return false;
+        event.consume();
+        long heldFor = Math.max(0L, event.getWhen() - doodleHypothesisGPressedAt);
+        boolean temporary = heldFor >= ANNOTATION_TOOL_HOLD_MILLIS || doodleHypothesisGUsedBoard;
+        boolean doubleTap = doodleHypothesisGDoubleTap && !temporary;
+        boolean toggleOff = doodleHypothesisEntryBeforeG;
+        clearActiveDoodleHypothesisKeyGesture();
+        // Escape, palette/tool changes and cancellation cannot be undone by a late release.
+        if (!isDoodleHypothesisEntryActive()) return true;
+        if (doubleTap) {
+            cancelDoodleHypothesisStarts();
+        } else if (temporary) {
+            // Keep an already pressed pointer transaction in entry until it commits,
+            // just as a held tool remains active until its pointer gesture finishes.
+            if (annotationToolPointerCaptured) pendingDoodleHypothesisEntryFinish = true;
+            else finishDoodleHypothesisEntry();
+        } else {
+            int group = doodleHypothesisEntryGroup;
+            if (toggleOff) finishDoodleHypothesisEntry();
+            pendingDoodleHypothesisTapReleasedAt = event.getWhen();
+            pendingDoodleHypothesisTapGroup = group;
+            pendingDoodleHypothesisTapBoardSignature = currentAnnotationToolTapBoardSignature();
+        }
+        return true;
+    }
+    private void clearActiveDoodleHypothesisKeyGesture() {
+        doodleHypothesisGDown = false;
+        doodleHypothesisGPressedAt = 0L;
+        doodleHypothesisEntryBeforeG = doodleHypothesisGUsedBoard = doodleHypothesisGDoubleTap = false;
+    }
+    private void clearPendingDoodleHypothesisTap() {
+        pendingDoodleHypothesisTapReleasedAt = 0L;
+        pendingDoodleHypothesisTapGroup = -1;
+        pendingDoodleHypothesisTapBoardSignature = null;
+    }
     public void cancelDoodleHypothesisStarts() {
         flushMappedClick();
         if (annotationTool != AnnotationTool.DOODLE || replayReadOnly) return;
         int group = cellZoomPanel.getPaletteGroup();
+        boolean changed = activeDoodleMarks().stream().anyMatch(mark -> mark.getThoughtGroup() == group
+                && mark.isHypothesisStart());
+        if (!changed) { finishDoodleHypothesisEntry(); return; }
         pushDoodleUndo(); doodleHypothesisConsumedMask |= 1 << group;
-        for (DoodleStroke mark : doodleStrokes) if (mark.getThoughtGroup() == group) {
+        for (DoodleStroke mark : activeDoodleMarks()) if (mark.getThoughtGroup() == group) {
             mark.setHypothesisStart(false); mark.setHypothesisConditionId(0); mark.setHypothesisGroupKind(0);
         }
         finishDoodleHypothesisEntry(); mainFrame.check(); repaint();
+        OperationSoundPlayer.play(OperationSoundPlayer.Sound.CLEAR);
     }
     void doodleHypothesisPaletteWillChange(int group) {
         if (group != cellZoomPanel.getPaletteGroup()) finishDoodleHypothesisEntry();
@@ -3488,17 +4404,20 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     }
     // Each color has one homogeneous start condition. Ordinary ink remains unrestricted.
     private boolean acceptsDoodleHypothesisStart(int group, int kind) {
+        return acceptsDoodleHypothesisStart(group, kind, Collections.<DoodleStroke>emptyList());
+    }
+    private boolean acceptsDoodleHypothesisStart(int group, int kind, List<DoodleStroke> replaced) {
         if (!((doodleHypothesisConsumedMask & (1 << group)) == 0
                 || isDoodleHypothesisEntryActive() && doodleHypothesisEntryGroup == group)) return true;
-        for (DoodleStroke start : doodleStrokes)
+        for (DoodleStroke start : activeDoodleMarks())
             if (start.isHypothesisStart() && start.getThoughtGroup() == group
-                    && start.getCandidateMarkKind() != kind) return false;
+                    && start.getCandidateMarkKind() != kind && !replaced.contains(start)) return false;
         return true;
     }
     private void normalizeDoodleHypothesisStarts(int group) {
         List<DoodleStroke> starts = new ArrayList<DoodleStroke>();
         int maxId = 0;
-        for (DoodleStroke mark : doodleStrokes) {
+        for (DoodleStroke mark : activeDoodleMarks()) {
             maxId = Math.max(maxId, mark.getHypothesisConditionId());
             if (mark.isHypothesisStart() && mark.getThoughtGroup() == group) starts.add(mark);
         }
@@ -3516,19 +4435,28 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     }
     public int getDoodleMarkSourceMask(int cell, int digit, int kind) {
         int mask = 0;
-        for (DoodleStroke mark : doodleStrokes) if (mark.isStandardCandidateMark()
+        for (DoodleStroke mark : interactiveDoodleMarks()) if (mark.isStandardCandidateMark()
                 && mark.getAnchorCell() == cell && mark.getAnchorDigit() == digit
                 && mark.getCandidateMarkKind() == kind && mark.getThoughtGroup() >= 0)
             mask |= 1 << mark.getThoughtGroup();
         return mask;
     }
     private void reconcileDoodleComposition() {
+        reconcileDoodleComposition(new DoodleFrameIndex(doodleStrokes, java.util.Collections.<DoodleStroke>emptyList()));
+    }
+    private void reconcileDoodleComposition(DoodleFrameIndex frame) {
+        Set<Integer> ownedSources = new HashSet<Integer>();
+        for (DoodleStroke mark : activeDoodleMarks()) if (mark.getDerivedSourceId() != 0) ownedSources.add(mark.getDerivedSourceId());
+        for (int index = doodleStrokes.size() - 1; index >= 0; index--) {
+            DoodleStroke mark = doodleStrokes.get(index);
+            if (mark.isProofOnly() && !ownedSources.contains(mark.getDerivedSourceId())) doodleStrokes.remove(index);
+        }
         for (int group = 0; group < 6; group++) normalizeDoodleHypothesisStarts(group);
-        for (DoodleStroke mark : doodleStrokes) if (mark.isConclusionOutlined() && mark.getConclusionSourceMask() != 0
-                && mark.getConclusionSourceMask() != getDoodleMarkSourceMask(mark.getAnchorCell(),
-                    mark.getAnchorDigit(), mark.getCandidateMarkKind())) {
+        for (DoodleStroke mark : activeDoodleMarks()) if (mark.isConclusionOutlined() && mark.getConclusionSourceMask() != 0
+                && mark.getConclusionSourceMask() != frame.sourceMask(mark)) {
             mark.setConclusionOutlined(false); mark.setConclusionSourceMask(0);
         }
+        reconcileDoodleRefutations();
     }
 
     private DoodleStroke createCandidateHypothesisMark(int cell,int digit,int kind,int thoughtGroup,Color color) {
@@ -3537,17 +4465,17 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             mark.setAnchorDigit(digit);
             mark.setCandidateMarkKind(kind);
             mark.setThoughtGroup(thoughtGroup);
-            double radius = (lastUserChainRouteDiameter > 0
-                    ? lastUserChainRouteDiameter : Math.max(10.0, cellSize / 5.0)) / 2.0 / Math.max(1, cellSize);
+            double radius = (lastCandidateMarkDiameter > 0
+                    ? lastCandidateMarkDiameter : Math.max(10.0, cellSize / 5.0)) / 2.0 / Math.max(1, cellSize);
             if (kind == DoodleStroke.MARK_FALSE_CROSS) {
-                mark.getPoints().add(new DoodlePoint(-radius, -radius));
-                mark.getPoints().add(new DoodlePoint(radius, radius));
-                mark.getPoints().add(new DoodlePoint(radius, -radius));
-                mark.getPoints().add(new DoodlePoint(-radius, radius));
+                mark.addPoint(-radius, -radius);
+                mark.addPoint(radius, radius);
+                mark.addPoint(radius, -radius);
+                mark.addPoint(-radius, radius);
             } else {
                 for (int i = 0; i <= 48; i++) {
                     double angle = 2 * Math.PI * i / 48;
-                    mark.getPoints().add(new DoodlePoint(radius * Math.cos(angle), radius * Math.sin(angle)));
+                    mark.addPoint(radius * Math.cos(angle), radius * Math.sin(angle));
                 }
             }
             mark.setWidthFactor(doodleWidthFactor * Math.min(getWidth(), getHeight()) / Math.max(1, cellSize));
@@ -3556,22 +4484,23 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     private DoodleStroke pendingDoodleMark() {
         MouseEvent e=pendingMappedClick;
         if(mappedSingleRollback!=null || annotationTool!=AnnotationTool.DOODLE || e==null || !SwingUtilities.isLeftMouseButton(e)
-                || e.isControlDown() || e.isMetaDown() || doodleFreeEraser || isAnnotationPreviewHeld())return null;
+                || e.isControlDown() || e.isMetaDown() || doodleFreeEraser)return null;
         int atom=mappedCandidate(e),group=cellZoomPanel.getPaletteGroup();
         if(atom<0||hasOutlinedDoodleMarkInCell(group,atom/10))return null;
-        for(DoodleStroke mark:doodleStrokes)if(mark.isStandardCandidateMark()&&mark.getThoughtGroup()==group
+        for(DoodleStroke mark:activeDoodleMarks())if(mark.isStandardCandidateMark()&&mark.getThoughtGroup()==group
                 &&mark.getAnchorCell()==atom/10&&mark.getAnchorDigit()==atom%10
                 &&mark.getCandidateMarkKind()==DoodleStroke.MARK_TRUE_CIRCLE)return null;
         return createCandidateHypothesisMark(atom/10,atom%10,DoodleStroke.MARK_TRUE_CIRCLE,group,cellZoomPanel.getPrimaryColor());
     }
     private boolean fadeCurrentDoodleCross(int cell,int digit) {
         if(annotationTool!=AnnotationTool.DOODLE||replayReadOnly)return false;
-        if(Integer.bitCount(getDoodleMarkSourceMask(cell,digit,DoodleStroke.MARK_FALSE_CROSS))>1)return false;
-        int group=cellZoomPanel.getPaletteGroup();
-        for(DoodleStroke mark:doodleStrokes)if(mark.isStandardCandidateMark()&&mark.getThoughtGroup()==group
-                &&mark.getAnchorCell()==cell&&mark.getAnchorDigit()==digit
-                &&mark.getCandidateMarkKind()==DoodleStroke.MARK_FALSE_CROSS)return true;
-        return false;
+        return fadeCurrentDoodleCross(cell, digit,
+                new DoodleFrameIndex(interactiveDoodleMarks(), java.util.Collections.<DoodleStroke>emptyList()));
+    }
+    private boolean fadeCurrentDoodleCross(int cell,int digit,DoodleFrameIndex frame) {
+        if(annotationTool!=AnnotationTool.DOODLE||replayReadOnly)return false;
+        int mask=frame.sourceMask(cell,digit,DoodleStroke.MARK_FALSE_CROSS);
+        return Integer.bitCount(mask)<=1 && (mask & (1<<cellZoomPanel.getPaletteGroup()))!=0;
     }
     private void toggleCandidateHypothesisMark(int cell, int digit, int kind, int thoughtGroup, Color color) {
         if (cell < 0 || cell >= 81 || digit < 1 || digit > 9
@@ -3580,12 +4509,17 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         List<Integer> duplicates = new ArrayList<Integer>();
         for (int i = doodleStrokes.size() - 1; i >= 0; i--) {
             DoodleStroke mark = doodleStrokes.get(i);
+            if (mark.isProofOnly()) continue;
             if (mark.isStandardCandidateMark() && mark.getThoughtGroup() == thoughtGroup
                     && mark.getAnchorCell() == cell && mark.getAnchorDigit() == digit
                     && mark.getCandidateMarkKind() == kind) duplicates.add(Integer.valueOf(i));
         }
+        if (isDoodleHypothesisEntryActive() && doodleHypothesisEntryGroup == thoughtGroup) {
+            editDoodleHypothesisStart(cell, digit, kind, thoughtGroup, color, duplicates);
+            return;
+        }
         if (duplicates.isEmpty() && !acceptsDoodleHypothesisStart(thoughtGroup, kind)) {
-            Toolkit.getDefaultToolkit().beep();
+            doodleEntryFeedback(() -> Toolkit.getDefaultToolkit().beep());
             return;
         }
         if (duplicates.isEmpty() && hasOutlinedDoodleMarkInCell(thoughtGroup, cell)) return;
@@ -3600,16 +4534,78 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         repaint();
     }
 
+    /** Explicit G entry edits the start role; ordinary taps keep their ink-toggle behavior. */
+    private void editDoodleHypothesisStart(int cell, int digit, int kind, int group, Color color,
+            List<Integer> matching) {
+        if (!matching.isEmpty()) {
+            boolean wasStart = matching.stream().anyMatch(index -> doodleStrokes.get(index).isHypothesisStart());
+            if (!wasStart && !acceptsDoodleHypothesisStart(group, kind)) {
+                doodleEntryFeedback(() -> Toolkit.getDefaultToolkit().beep()); return;
+            }
+            pushDoodleUndo();
+            if (wasStart) {
+                // An imported ordinary truth remains distinct from an OR member.
+                boolean hasOrdinary = matching.stream().anyMatch(index -> !doodleStrokes.get(index).isHypothesisStart());
+                List<DoodleStroke> removedRoles = new ArrayList<DoodleStroke>();
+                for (int index : matching) {
+                    DoodleStroke mark = doodleStrokes.get(index);
+                    if (!mark.isHypothesisStart()) continue;
+                    if (hasOrdinary) removedRoles.add(mark);
+                    else { mark.setHypothesisStart(false); mark.setHypothesisConditionId(0); mark.setHypothesisGroupKind(0); }
+                }
+                doodleStrokes.removeAll(removedRoles);
+            } else {
+                // Preserve the original single-mark G toggle instead of promoting
+                // every same-position conclusion into the whole start condition.
+                DoodleStroke mark = doodleStrokes.get(matching.get(0));
+                mark.setHypothesisStart(true);
+                mark.setHypothesisConditionId(0); mark.setHypothesisGroupKind(0);
+            }
+            doodleHypothesisConsumedMask |= 1 << group;
+        } else {
+            List<DoodleStroke> replaced = new ArrayList<DoodleStroke>();
+            for (DoodleStroke mark : activeDoodleMarks()) if (mark.isStandardCandidateMark()
+                    && mark.getThoughtGroup() == group && mark.getAnchorCell() == cell
+                    && mark.getAnchorDigit() == digit && mark.getCandidateMarkKind() != kind) replaced.add(mark);
+            // Check the condition before removing any old ink. Replacing its sole
+            // start is permitted; changing just one member of a homogeneous group is not.
+            if (!acceptsDoodleHypothesisStart(group, kind, replaced)) {
+                doodleEntryFeedback(() -> Toolkit.getDefaultToolkit().beep()); return;
+            }
+            pushDoodleUndo(); doodleStrokes.removeAll(replaced);
+            DoodleStroke mark = createCandidateHypothesisMark(cell, digit, kind, group, color);
+            assignDoodleHypothesisStart(mark); doodleStrokes.add(mark);
+            if (!replaced.isEmpty()) doodleEntryFeedback(() -> OperationSoundPlayer.play(OperationSoundPlayer.Sound.CLEAR));
+        }
+        reconcileDoodleComposition(); mainFrame.check(); repaint();
+    }
+
 	private boolean hasCandidateAnchor(int cell, int digit) {
 		return cell >= 0 && cell < Sudoku2.LENGTH && digit >= 1 && digit <= 9
 				&& sudoku.getValue(cell) == 0
 				&& (sudoku.isCandidate(cell, digit) || sudoku.isCandidate(cell, digit, true));
 	}
 
+    private Set<Integer> satisfiedDerivedDoodleSources(List<DoodleStroke> marks) {
+        Set<Integer> satisfied = new HashSet<Integer>();
+        for (DoodleStroke mark : marks) if (!mark.isProofOnly() && mark.getDerivedSourceId() != 0
+                && mark.isHypothesisStart() && mark.isStandardCandidateMark()
+                && mark.getCandidateMarkKind() == DoodleStroke.MARK_TRUE_CIRCLE
+                && sudoku.getValue(mark.getAnchorCell()) == mark.getAnchorDigit())
+            satisfied.add(mark.getDerivedSourceId());
+        return satisfied;
+    }
+
 	private boolean pruneStaleCandidateAnnotations() {
 		boolean changed = false;
+        Set<Integer> satisfiedSources = satisfiedDerivedDoodleSources(doodleStrokes);
 		for (int i = doodleStrokes.size() - 1; i >= 0; i--) {
 			DoodleStroke stroke = doodleStrokes.get(i);
+            if (stroke.isProofOnly()) continue;
+            // A known true member satisfies the whole OR. It cannot make the other members true.
+            if (stroke.isHypothesisStart() && satisfiedSources.contains(stroke.getDerivedSourceId())) {
+                doodleStrokes.remove(i); changed = true; continue;
+            }
 			if (stroke.isCandidateAnchored() && !hasCandidateAnchor(stroke.getAnchorCell(), stroke.getAnchorDigit())) {
 				doodleStrokes.remove(i);
 				changed = true;
@@ -3686,7 +4682,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	private boolean hasOutlinedDoodleMarkInCell(int group, int cell) {
-		for (DoodleStroke stroke : doodleStrokes) {
+		for (DoodleStroke stroke : interactiveDoodleMarks()) {
 			if (stroke.isStandardCandidateMark() && stroke.getThoughtGroup() == group
 					&& stroke.getAnchorCell() == cell && stroke.isConclusionOutlined()) return true;
 		}
@@ -3697,7 +4693,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         DoodleStroke hit=hitDoodleCandidateMark(point,group);
         if(hit==null)return false;
         boolean circle=false,cross=false;
-        for(DoodleStroke mark:doodleStrokes)if(mark.isStandardCandidateMark()
+        for(DoodleStroke mark:interactiveDoodleMarks())if(mark.isStandardCandidateMark()
                 &&(mark.getThoughtGroup()==group || Integer.bitCount(getDoodleMarkSourceMask(mark.getAnchorCell(),mark.getAnchorDigit(),mark.getCandidateMarkKind()))>1)
                 &&mark.getAnchorCell()==hit.getAnchorCell()&&mark.getAnchorDigit()==hit.getAnchorDigit()) {
             circle|=mark.getCandidateMarkKind()==DoodleStroke.MARK_TRUE_CIRCLE;
@@ -3709,16 +4705,26 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         toggleDoodleConclusionOutlineAt(point,group,DoodleStroke.MARK_NONE);
     }
     private void toggleDoodleConclusionOutlineAt(Point point,int group,int kind) {
+        if (doodleContradiction(group, false).hasRefutation() || doodleConsensus(group, false).hasConclusions()
+                || doodleCompletion(group, false).complete()) return;
         DoodleStroke target=hitDoodleCandidateMark(point,group);
         if(target==null||!hasCandidateAnchor(target.getAnchorCell(),target.getAnchorDigit()))return;
         if(kind!=DoodleStroke.MARK_NONE) {
             DoodleStroke selected=null;
-            for(DoodleStroke mark:doodleStrokes)if(mark.isStandardCandidateMark()
+            for(DoodleStroke mark:interactiveDoodleMarks())if(mark.isStandardCandidateMark()
                     &&(mark.getThoughtGroup()==group || Integer.bitCount(getDoodleMarkSourceMask(mark.getAnchorCell(),mark.getAnchorDigit(),kind))>1)
                     &&mark.getAnchorCell()==target.getAnchorCell()&&mark.getAnchorDigit()==target.getAnchorDigit()
                     &&mark.getCandidateMarkKind()==kind){selected=mark;break;}
             if(selected==null)return;
             target=selected;
+        }
+        if (target.getCandidateMarkKind() == DoodleStroke.MARK_TRUE_CIRCLE) {
+            for (DoodleStroke mark : interactiveDoodleMarks()) {
+                if (mark.isStandardCandidateMark() && mark.getThoughtGroup() == group
+                        && mark.getAnchorCell() == target.getAnchorCell() && mark.getAnchorDigit() == target.getAnchorDigit()
+                        && mark.getCandidateMarkKind() == DoodleStroke.MARK_TRUE_CIRCLE
+                        && mark.getHypothesisGroupKind() != 1) { target = mark; break; }
+            }
         }
         // Selection is an independent UI state. OR members remain excluded at application time.
         if(target.isConclusionOutlined()) {
@@ -3726,13 +4732,13 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         }
         // Keep the existing one-conclusion-per-cell rule, but permit switching
         // polarity for this same candidate without deleting either mark.
-        for(DoodleStroke mark:doodleStrokes)if(mark.isStandardCandidateMark()
+        for(DoodleStroke mark:interactiveDoodleMarks())if(mark.isStandardCandidateMark()
                 &&(mark.getThoughtGroup()==group || mark.getConclusionSourceMask()!=0)
                 &&mark.getAnchorCell()==target.getAnchorCell()&&mark.isConclusionOutlined()
                 &&mark.getAnchorDigit()!=target.getAnchorDigit())return;
         if(target.getCandidateMarkKind()==DoodleStroke.MARK_TRUE_CIRCLE&&conflictsWithOutlinedTrueCircle(target,group))return;
         pushDoodleUndo();
-        for(DoodleStroke mark:doodleStrokes)if(mark.isStandardCandidateMark()
+        for(DoodleStroke mark:interactiveDoodleMarks())if(mark.isStandardCandidateMark()
                 &&(mark.getThoughtGroup()==group || mark.getConclusionSourceMask()!=0)
                 &&mark.getAnchorCell()==target.getAnchorCell()&&mark.getAnchorDigit()==target.getAnchorDigit()) {
             mark.setConclusionOutlined(false); mark.setConclusionSourceMask(0);
@@ -3745,7 +4751,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	private boolean conflictsWithOutlinedTrueCircle(DoodleStroke target, int group) {
 		int cell = target.getAnchorCell(), digit = target.getAnchorDigit();
-		for (DoodleStroke other : doodleStrokes) {
+		for (DoodleStroke other : interactiveDoodleMarks()) {
 			if (other == target || !other.isStandardCandidateMark() || !other.isConclusionOutlined()
 					|| (other.getThoughtGroup() != group && other.getConclusionSourceMask() == 0)
 					|| other.getCandidateMarkKind() != DoodleStroke.MARK_TRUE_CIRCLE
@@ -3764,8 +4770,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	private DoodleStroke hitDoodleCandidateMark(Point point, int group) {
 		DoodleStroke best = null;
 		double bestDistance = Double.MAX_VALUE;
-		for (int i = doodleStrokes.size() - 1; i >= 0; i--) {
-			DoodleStroke stroke = doodleStrokes.get(i);
+		List<DoodleStroke> visible = interactiveDoodleMarks();
+		for (int i = visible.size() - 1; i >= 0; i--) {
+			DoodleStroke stroke = visible.get(i);
 			if (!stroke.isStandardCandidateMark() || stroke.getThoughtGroup() != group
 					|| !hasCandidateAnchor(stroke.getAnchorCell(), stroke.getAnchorDigit())) continue;
 			Point2D.Double center = getCandKoord(stroke.getAnchorCell(), stroke.getAnchorDigit(), cellSize);
@@ -3776,7 +4783,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				bestDistance = distance;
 			}
 		}
-        if (best == null) for (DoodleStroke mark : doodleStrokes) {
+        if (best == null) for (DoodleStroke mark : interactiveDoodleMarks()) {
             if (!mark.isStandardCandidateMark() || !hasCandidateAnchor(mark.getAnchorCell(),mark.getAnchorDigit())
                     || Integer.bitCount(getDoodleMarkSourceMask(mark.getAnchorCell(),mark.getAnchorDigit(),mark.getCandidateMarkKind())) < 2) continue;
             double distance = getCandKoord(mark.getAnchorCell(),mark.getAnchorDigit(),cellSize).distanceSq(point);
@@ -3802,8 +4809,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		int currentGroup = cellZoomPanel == null ? -1 : cellZoomPanel.getPaletteGroup();
 		DoodleStroke hit = hitDoodlePreviewCircle(point, currentGroup);
 		if (hit != null) return hit;
-		for (int i = doodleStrokes.size() - 1; i >= 0; i--) {
-			DoodleStroke stroke = doodleStrokes.get(i);
+		List<DoodleStroke> visible = interactiveDoodleMarks();
+		for (int i = visible.size() - 1; i >= 0; i--) {
+			DoodleStroke stroke = visible.get(i);
 			if (!stroke.isStandardCandidateMark() || stroke.getCandidateMarkKind() != DoodleStroke.MARK_TRUE_CIRCLE
 					|| stroke.getThoughtGroup() < 0 || stroke.getThoughtGroup() == currentGroup
 					|| !hasCandidateAnchor(stroke.getAnchorCell(), stroke.getAnchorDigit())) continue;
@@ -3816,8 +4824,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	private DoodleStroke hitDoodlePreviewCircle(Point point, int group) {
 		if (group < 0 || group > 5) return null;
-		for (int i = doodleStrokes.size() - 1; i >= 0; i--) {
-			DoodleStroke stroke = doodleStrokes.get(i);
+		List<DoodleStroke> visible = interactiveDoodleMarks();
+		for (int i = visible.size() - 1; i >= 0; i--) {
+			DoodleStroke stroke = visible.get(i);
 			if (!stroke.isStandardCandidateMark() || stroke.getCandidateMarkKind() != DoodleStroke.MARK_TRUE_CIRCLE
 					|| stroke.getThoughtGroup() != group
 					|| !hasCandidateAnchor(stroke.getAnchorCell(), stroke.getAnchorDigit())) continue;
@@ -3843,47 +4852,64 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		DoodleThoughtPreviewProjection projection = new DoodleThoughtPreviewProjection(group);
 		List<DoodleStroke> circles = new ArrayList<DoodleStroke>();
 		List<DoodleStroke> crosses = new ArrayList<DoodleStroke>();
-		for (DoodleStroke stroke : doodleStrokes) {
+		for (DoodleStroke stroke : doodleDisplaySourceMarks()) {
 			if (!stroke.isStandardCandidateMark() || stroke.getThoughtGroup() != group
 					|| !hasCandidateAnchor(stroke.getAnchorCell(), stroke.getAnchorDigit())) continue;
 			if (stroke.getCandidateMarkKind() == DoodleStroke.MARK_TRUE_CIRCLE && stroke.getHypothesisGroupKind() != 1) circles.add(stroke);
 			else if (stroke.getCandidateMarkKind() == DoodleStroke.MARK_FALSE_CROSS) crosses.add(stroke);
 		}
-		for (DoodleStroke circle : circles) {
-			int cell = circle.getAnchorCell(), digit = circle.getAnchorDigit(), key = cell * 10 + digit;
-			for (DoodleStroke cross : crosses) {
-				if (cross.getAnchorCell() == cell && cross.getAnchorDigit() == digit) projection.conflicts.add(key);
-			}
-		}
-		for (int i = 0; i < circles.size(); i++) {
-			DoodleStroke first = circles.get(i);
-			for (int j = i + 1; j < circles.size(); j++) {
-				DoodleStroke second = circles.get(j);
-				boolean sameCellDifferentDigit = first.getAnchorCell() == second.getAnchorCell()
-						&& first.getAnchorDigit() != second.getAnchorDigit();
-				boolean sameDigitPeer = first.getAnchorDigit() == second.getAnchorDigit()
-						&& arePeerCells(first.getAnchorCell(), second.getAnchorCell());
-				if (sameCellDifferentDigit || sameDigitPeer) {
-					projection.conflicts.add(first.getAnchorCell() * 10 + first.getAnchorDigit());
-					projection.conflicts.add(second.getAnchorCell() * 10 + second.getAnchorDigit());
-				}
-			}
-		}
+        // A grouped circle start is an OR premise: only common peers are visible
+        // from the whole condition. Ordinary circles each contribute their own peers.
+        Map<String, List<DoodleStroke>> peerSources = new HashMap<String, List<DoodleStroke>>();
+        for (DoodleStroke mark : doodleDisplaySourceMarks()) {
+            if (!mark.isStandardCandidateMark() || mark.getThoughtGroup() != group
+                    || mark.getCandidateMarkKind() != DoodleStroke.MARK_TRUE_CIRCLE
+                    || !hasCandidateAnchor(mark.getAnchorCell(), mark.getAnchorDigit())) continue;
+            String source = mark.getHypothesisGroupKind() == 1
+                    ? "condition:" + mark.getHypothesisConditionId() : "atom:" + mark.getAnchorCell() + ":" + mark.getAnchorDigit();
+            if (!peerSources.containsKey(source)) peerSources.put(source, new ArrayList<DoodleStroke>());
+            peerSources.get(source).add(mark);
+        }
+        for (List<DoodleStroke> sources : peerSources.values()) {
+            int digit = sources.get(0).getAnchorDigit();
+            for (int cell = 0; cell < 81; cell++) {
+                if (!hasCandidateAnchor(cell, digit)) continue;
+                boolean common = true;
+                for (DoodleStroke source : sources) {
+                    if (source.getAnchorDigit() != digit || !arePeerCells(cell, source.getAnchorCell())) {
+                        common = false; break;
+                    }
+                }
+                if (common) projection.peerCandidates.add(cell * 10 + digit);
+            }
+        }
+        DoodleContradictionBasis.Analysis contradiction = doodleErasePreview == null ? doodleContradiction(group, false)
+                : DoodleContradictionBasis.analyze(sudoku, doodleErasePreview, group);
+        projection.conflicts.addAll(contradiction.conflictAtoms());
+        projection.protectedCandidates.addAll(projection.conflicts);
+        if (contradiction.hasRefutation()) projection.protectedCandidates.addAll(contradiction.starts);
+        else {
+            projection.protectedCandidates.addAll(displayedDoodleConsensus().protectedAtoms());
+            projection.protectedCandidates.addAll(displayedDoodleCompletion().fills);
+        }
 		for (DoodleStroke cross : crosses) {
 			int key = cross.getAnchorCell() * 10 + cross.getAnchorDigit();
-			if (!projection.conflicts.contains(key)) projection.removedCandidates.add(key);
+			if (!projection.protectedCandidates.contains(key)) projection.removedCandidates.add(key);
 		}
 		Map<Integer, Integer> circleCounts = new HashMap<Integer, Integer>();
+		Set<Integer> seenCircleAtoms = new HashSet<Integer>();
 		for (DoodleStroke circle : circles) {
 			int cell = circle.getAnchorCell(), digit = circle.getAnchorDigit(), key = cell * 10 + digit;
+            if (!seenCircleAtoms.add(key)) continue;
 			Integer count = circleCounts.get(cell);
 			circleCounts.put(cell, count == null ? 1 : count + 1);
-			if (projection.conflicts.contains(key)) continue;
+			if (projection.protectedCandidates.contains(key)) continue;
 			projection.filledCells.put(cell, digit);
 		}
 		for (Integer cell : new ArrayList<Integer>(projection.filledCells.keySet())) {
 			if (circleCounts.get(cell).intValue() != 1) projection.filledCells.remove(cell);
 		}
+        for (int atom : projection.protectedCandidates) projection.filledCells.remove(atom / 10);
 		return projection;
 	}
 
@@ -3909,18 +4935,44 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
     private boolean hasOutlinedDoodleConclusions() {
         int group = cellZoomPanel.getPaletteGroup();
-        for (DoodleStroke mark : doodleStrokes) if (mark.isStandardCandidateMark()
+        if (!replayReadOnly && (doodleContradiction(group, false).hasRefutation()
+                || lastDisplayedDoodleRefutationGroup == group
+                || doodleConsensus(group, false).hasConclusions() || lastDisplayedDoodleConsensusGroup == group
+                || doodleCompletion(group, false).complete() || lastDisplayedDoodleCompletionGroup == group)) return true;
+        for (DoodleStroke mark : interactiveDoodleMarks()) if (mark.isStandardCandidateMark()
                 && mark.isConclusionOutlined()
                 && (mark.getThoughtGroup() == group || mark.getConclusionSourceMask() != 0)) return true;
         return false;
     }
 
-	private void applyOutlinedDoodleConclusions() {
+    boolean hasDoodleConclusionEnterContext() {
+        return annotationTool == AnnotationTool.DOODLE && !replayReadOnly && hasOutlinedDoodleConclusions();
+    }
+
+    private void applyOutlinedDoodleConclusions() {
+        if (replayReadOnly) return;
+        if (doodleGesture != DoodleGesture.NONE || annotationToolPointerCaptured) return;
         reconcileDoodleComposition();
 		int group = cellZoomPanel.getPaletteGroup();
+        DoodleContradictionBasis.Analysis refutation = doodleContradiction(group, true);
+        if (refutation.isOrConclusion()) { adoptDoodleRefutationOr(refutation); return; }
+        if (!refutation.hasRefutation() && lastDisplayedDoodleRefutationGroup == group) {
+            lastDisplayedDoodleRefutationGroup = -1; repaint(); return;
+        }
+        DoodleConsensusBasis.Analysis consensus = doodleConsensus(group, true);
+        DoodleCompletionBasis.Analysis completion = doodleCompletion(group, true);
+        if (!completion.complete() && lastDisplayedDoodleCompletionGroup == group) {
+            lastDisplayedDoodleCompletionGroup = -1; repaint(); return;
+        }
+        if (!refutation.hasRefutation() && !completion.complete() && !consensus.hasConclusions() && lastDisplayedDoodleConsensusGroup == group) {
+            lastDisplayedDoodleConsensusGroup = -1; repaint(); return;
+        }
 		List<DoodleStroke> fills = new ArrayList<DoodleStroke>();
 		List<DoodleStroke> removals = new ArrayList<DoodleStroke>();
-		for (DoodleStroke stroke : doodleStrokes) {
+        List<DoodleStroke> targets = refutation.hasRefutation() ? doodleRefutationMarks(refutation)
+                : completion.complete() ? doodleCompletionMarks(completion)
+                : consensus.hasConclusions() ? doodleConsensusMarks(consensus) : interactiveDoodleMarks();
+		for (DoodleStroke stroke : targets) {
 			if (!stroke.isStandardCandidateMark() || !stroke.isConclusionOutlined()
 					|| (stroke.getThoughtGroup() != group && stroke.getConclusionSourceMask() == 0)
 					|| !hasCandidateAnchor(stroke.getAnchorCell(), stroke.getAnchorDigit())) continue;
@@ -3930,7 +4982,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		if (fills.isEmpty() && removals.isEmpty()) return;
 
 		Sudoku2 before = sudoku.clone();
-		ReplayAnnotations beforeAnnotations = captureReplayAnnotations();
+		ReplayAnnotations beforeAnnotations = captureReplayAnnotations(true);
 		ReplayController replay = mainFrame.getReplayController();
 		long wall = replay == null ? System.currentTimeMillis() : replay.wallTimeMillis();
 		long elapsed = replay == null ? 0L : replay.elapsedMillis();
@@ -3961,6 +5013,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		redoStack.clear();
 		redoColoringStates.clear();
 		clearCurrentDoodleThoughtGroup(group);
+        lastDisplayedDoodleRefutationGroup = -1;
+        lastDisplayedDoodleConsensusGroup = -1;
+        lastDisplayedDoodleCompletionGroup = -1;
 		clearDoodleThoughtPreview();
 		updateCellZoomPanel();
 		checkProgress();
@@ -3971,8 +5026,48 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		appendDoodleConclusionReplay(before, beforeAnnotations, wall, elapsed);
 	}
 
+    private void adoptDoodleRefutationOr(DoodleContradictionBasis.Analysis refutation) {
+        int group = cellZoomPanel.getPaletteGroup();
+        if (!refutation.isOrConclusion() || refutation.group != group) return;
+        List<DoodleStroke> circles = doodleRefutationMarks(refutation);
+        if (circles.size() != refutation.starts.size()) return;
+        Sudoku2 before = sudoku.clone();
+        ReplayAnnotations beforeAnnotations = captureReplayAnnotations();
+        ReplayController replay = mainFrame.getReplayController();
+        long wall = replay == null ? System.currentTimeMillis() : replay.wallTimeMillis();
+        long elapsed = replay == null ? 0L : replay.elapsedMillis();
+        int sourceId = 1;
+        for (DoodleStroke mark : doodleStrokes) sourceId = Math.max(sourceId, mark.getDerivedSourceId() + 1);
+        List<DoodleStroke> support = new ArrayList<DoodleStroke>();
+        for (DoodleStroke mark : doodleStrokes) if (mark.getThoughtGroup() == group && !mark.isRefutationResult()) {
+            DoodleStroke copy = mark.copy();
+            copy.setProofOnly(true); copy.setDerivedSourceId(sourceId);
+            copy.setContradictionWitness(false); copy.setConclusionOutlined(false); copy.setConclusionSourceMask(0);
+            support.add(copy);
+        }
+        pushDoodleUndo();
+        for (int index = doodleStrokes.size() - 1; index >= 0; index--)
+            if (doodleStrokes.get(index).getThoughtGroup() == group) doodleStrokes.remove(index);
+        for (DoodleStroke circle : circles) {
+            circle.setRefutationResult(false); circle.setContradictionWitness(false);
+            circle.setConclusionOutlined(false); circle.setHypothesisStart(true);
+            circle.setDerivedSourceId(sourceId); doodleStrokes.add(circle);
+        }
+        doodleStrokes.addAll(support);
+        doodleHypothesisConsumedMask |= 1 << group;
+        lastDisplayedDoodleRefutationGroup = -1;
+        finishDoodleHypothesisEntry(); reconcileDoodleComposition();
+        mainFrame.check(); mainFrame.refreshAnnotationUndoControls(); repaint();
+        appendDoodleConclusionReplay(before, beforeAnnotations, wall, elapsed, true);
+    }
+
 	private void appendDoodleConclusionReplay(Sudoku2 before, ReplayAnnotations beforeAnnotations,
 			long wall, long elapsed) {
+        appendDoodleConclusionReplay(before, beforeAnnotations, wall, elapsed, false);
+    }
+
+    private void appendDoodleConclusionReplay(Sudoku2 before, ReplayAnnotations beforeAnnotations,
+            long wall, long elapsed, boolean orAdoption) {
 		ReplayController replay = mainFrame.getReplayController();
 		if (replay == null || replay.isViewing() || replay.session().completed) return;
 		replay.updateElapsed();
@@ -3980,22 +5075,52 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		long resultWall = replay.wallTimeMillis();
 		long resultElapsed = replay.elapsedMillis();
 		List<ReplayFrame> frames = new ArrayList<ReplayFrame>(2);
-		frames.add(new ReplayFrame(operationId, wall, elapsed, "doodle-conclusion-input",
-				ReplayText.text("doodleConclusionInput"), new ReplayBoard(before), null, beforeAnnotations));
-		frames.add(new ReplayFrame(operationId, resultWall, resultElapsed, "doodle-conclusion-result",
-				ReplayText.text("doodleConclusionResult"), new ReplayBoard(sudoku), null, captureReplayAnnotations()));
-		replay.appendOperation(frames);
-	}
+        DoodleReplayStep step=DoodleReplayStep.capture(before,sudoku,beforeAnnotations,orAdoption);
+        DoodleReplayStep applied=step.atApplication();
+        ReplayAnnotations resultAnnotations=captureReplayAnnotations();
+        frames.add(new ReplayFrame(operationId, wall, elapsed, orAdoption ? "doodle-or-input" : "doodle-conclusion-input",
+                step.sharedLabel(), new ReplayBoard(before), null, beforeAnnotations.withDoodleStep(step,beforeAnnotations.overlay)));
+        // Shared Windows data keeps the historical glyphs on the result board. The
+        // Mac extension separately preserves the actual editable post-operation ink.
+        frames.add(new ReplayFrame(operationId, resultWall, resultElapsed, orAdoption ? "doodle-or-result" : "doodle-conclusion-result",
+                applied.sharedLabel(), new ReplayBoard(sudoku), null, resultAnnotations.withDoodleStep(applied,beforeAnnotations.overlay)));
+        replay.appendOperation(frames);
+        mainFrame.getHintTextArea().setReferenceText(applied.description());
+    }
 
 	private void clearCurrentDoodleThoughtGroup(int group) {
-		boolean found = false;
-		for (DoodleStroke stroke : doodleStrokes) found |= stroke.getThoughtGroup() == group;
-		if (!found) return;
-		pushDoodleUndo();
-		for (int i = doodleStrokes.size() - 1; i >= 0; i--) {
-			if (doodleStrokes.get(i).getThoughtGroup() == group) doodleStrokes.remove(i);
-		}
-        doodleHypothesisConsumedMask &= ~(1 << group); reconcileDoodleComposition();
+		// A filled member satisfies an OR condition; its remaining members must
+		// not become a new premise merely because that member is now invalid.
+        Set<Integer> satisfiedConditions = new HashSet<Integer>();
+        Set<Integer> satisfiedSources = satisfiedDerivedDoodleSources(doodleStrokes);
+        for (DoodleStroke mark : activeDoodleMarks()) if (mark.getThoughtGroup() == group
+                && mark.isHypothesisStart() && mark.getHypothesisGroupKind() == 1
+                && mark.getHypothesisConditionId() != 0
+                && sudoku.getValue(mark.getAnchorCell()) == mark.getAnchorDigit())
+            satisfiedConditions.add(mark.getHypothesisConditionId());
+        Set<DoodleStroke> retained = new HashSet<DoodleStroke>();
+        Set<Integer> retainedSources = new HashSet<Integer>();
+        for (DoodleStroke mark : activeDoodleMarks()) if (mark.getThoughtGroup() == group
+                && mark.isHypothesisStart() && hasCandidateAnchor(mark.getAnchorCell(), mark.getAnchorDigit())
+                && !satisfiedConditions.contains(mark.getHypothesisConditionId())
+                && !satisfiedSources.contains(mark.getDerivedSourceId())) {
+            retained.add(mark);
+            if (mark.getDerivedSourceId() != 0) retainedSources.add(mark.getDerivedSourceId());
+        }
+        for (DoodleStroke mark : doodleStrokes) if (mark.getThoughtGroup() == group
+                && mark.isProofOnly() && retainedSources.contains(mark.getDerivedSourceId())) retained.add(mark);
+        boolean changed = doodleStrokes.stream().anyMatch(mark -> mark.getThoughtGroup() == group
+                && (!retained.contains(mark) || mark.isConclusionOutlined() || mark.getConclusionSourceMask() != 0));
+        if (changed) {
+            pushDoodleUndo();
+            doodleStrokes.removeIf(mark -> mark.getThoughtGroup() == group && !retained.contains(mark));
+            for (DoodleStroke mark : retained) {
+                mark.setConclusionOutlined(false); mark.setConclusionSourceMask(0);
+            }
+        }
+        if (retained.isEmpty()) doodleHypothesisConsumedMask &= ~(1 << group);
+        else doodleHypothesisConsumedMask |= 1 << group;
+        reconcileDoodleComposition();
 	}
 
     private java.awt.geom.Area eraserSweep(Point from,Point point) {
@@ -4007,8 +5132,29 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
                 point.x-diameter/2,point.y-diameter/2,diameter,diameter)));
         return area;
     }
+    private DoodleGeometry.ErasurePreview subtractVisibleDoodleInk(List<DoodleStroke> ink, Shape eraser) {
+        Set<DoodleStroke> editable = new HashSet<DoodleStroke>(visibleDoodleInk(ink, currentDoodleSources()));
+        int deleteGroup = paletteDeleteGroup();
+        if (deleteGroup >= 0) editable.removeIf(stroke -> stroke.getThoughtGroup() >= 0
+                ? stroke.getThoughtGroup() != deleteGroup : !matchesPaletteDeleteColor(stroke.getColor()));
+        // The preview loses the current contribution before release; keep the
+        // original gesture's source relation so later sweeps cannot erase its peers.
+        DoodleFrameIndex frame = new DoodleFrameIndex(doodleStrokes, java.util.Collections.<DoodleStroke>emptyList());
+        int group = cellZoomPanel.getPaletteGroup();
+        for (DoodleStroke mark : ink) if (mark.isStandardCandidateMark() && mark.getThoughtGroup() != group) {
+            int sources = frame.sourceMask(mark.getAnchorCell(), mark.getAnchorDigit(), DoodleStroke.MARK_TRUE_CIRCLE)
+                    | frame.sourceMask(mark.getAnchorCell(), mark.getAnchorDigit(), DoodleStroke.MARK_FALSE_CROSS);
+            if ((sources & 1 << group) != 0 && Integer.bitCount(sources) > 1) editable.remove(mark);
+        }
+        return DoodleGeometry.previewSubtract(ink, eraser, getWidth(), getHeight(),
+                stroke -> editable.contains(stroke) ? doodleProjection(stroke, getWidth(), getHeight()) : null,
+                stroke -> doodleStrokePixelWidth(stroke, getWidth(), getHeight()), doodleWholeStrokeEraser);
+    }
+
     private void eraseDoodleCircle(Point point) {
-        doodleErasePreview = DoodleGeometry.subtract(doodleErasePreview,eraserSweep(doodleGestureCurrent,point),getWidth(),getHeight(), stroke -> doodleProjection(stroke,getWidth(),getHeight()));
+        DoodleGeometry.ErasurePreview cut = subtractVisibleDoodleInk(doodleErasePreview, eraserSweep(doodleGestureCurrent,point));
+        doodleErasePreview = cut.retained;
+        doodleEraseGhosts.addAll(cut.removed);
     }
 
     private boolean extendDoodle(MouseEvent event) {
@@ -4016,8 +5162,15 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         Point point = event.getPoint();
         if(doodleGestureStart.distance(point)>=4)doodleDragged=true;
         if (doodleGesture == DoodleGesture.CIRCLE_ERASER) eraseDoodleCircle(point);
+        else if (doodleGesture == DoodleGesture.RECT_ERASER) {
+            // A rectangle can shrink as well as grow; always recut the original.
+            DoodleGeometry.ErasurePreview cut = subtractVisibleDoodleInk(doodleStrokes,
+                    dragRectangle(doodleGestureStart,point));
+            doodleErasePreview = cut.retained;
+            doodleEraseGhosts.clear(); doodleEraseGhosts.addAll(cut.removed);
+        }
         doodleGestureCurrent = point;
-        if (doodleGesture == DoodleGesture.PEN) activeDoodleStroke.getPoints().add(toDoodlePoint(point));
+        if (doodleGesture == DoodleGesture.PEN) appendDoodlePoint(activeDoodleStroke, point);
         else if (doodleGesture == DoodleGesture.ELLIPSE) {
             activeDoodleStroke.getPoints().clear();
             double cx=(doodleGestureStart.x+point.x)/2.0,cy=(doodleGestureStart.y+point.y)/2.0;
@@ -4025,15 +5178,14 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             int count=Math.max(32,(int)Math.ceil(Math.PI*(rx+ry)));
             for(int i=0;i<=count;i++) {
                 double angle=2*Math.PI*i/count;
-                activeDoodleStroke.getPoints().add(new DoodlePoint((cx+rx*Math.cos(angle))/getWidth(),
-                        (cy+ry*Math.sin(angle))/getHeight()));
+                activeDoodleStroke.addPoint((cx+rx*Math.cos(angle))/getWidth(),
+                        (cy+ry*Math.sin(angle))/getHeight());
             }
         }
         repaint();return true;
     }
 
 	private boolean finishDoodle(MouseEvent event) {
-		if (doodleThoughtPreviewHeld) return annotationTool == AnnotationTool.DOODLE;
 		if (doodleGesture == DoodleGesture.NONE) return false;
         extendDoodle(event);
         if(doodleGesture==DoodleGesture.ELLIPSE && !doodleDragged) {
@@ -4041,7 +5193,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             int row=getRow(doodleGestureStart),col=getCol(doodleGestureStart);
             int digit=getCandidate(doodleGestureStart,row,col);
             if(isOnGrid(doodleGestureStart)&&Sudoku2.isValidIndex(row,col)&&digit>0&&isUserChainCandidateVisible(row*9+col,digit)) {
-                double radius=(lastUserChainRouteDiameter>0?lastUserChainRouteDiameter:Math.max(10.0,cellSize/5.0))/2;
+                double radius=(lastCandidateMarkDiameter>0?lastCandidateMarkDiameter:Math.max(10.0,cellSize/5.0))/2;
                 activeDoodleStroke.setAnchorCell(row*9+col);
                 activeDoodleStroke.setAnchorDigit(digit);
                 activeDoodleStroke.setWidthFactor(doodleWidthFactor * Math.min(getWidth(),getHeight()) / Math.max(1,cellSize));
@@ -4049,18 +5201,15 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
                 activeDoodleStroke.setThoughtGroup(doodleGestureThoughtGroup);
                 if (doodleTapCandidateMarkKind == DoodleStroke.MARK_FALSE_CROSS) {
                     double r=radius/cellSize;
-                    activeDoodleStroke.getPoints().add(new DoodlePoint(-r,-r));
-                    activeDoodleStroke.getPoints().add(new DoodlePoint(r,r));
-                    activeDoodleStroke.getPoints().add(new DoodlePoint(r,-r));
-                    activeDoodleStroke.getPoints().add(new DoodlePoint(-r,r));
+                    activeDoodleStroke.addPoint(-r,-r);
+                    activeDoodleStroke.addPoint(r,r);
+                    activeDoodleStroke.addPoint(r,-r);
+                    activeDoodleStroke.addPoint(-r,r);
                 } else {
-                    for(int i=0;i<=48;i++){double angle=2*Math.PI*i/48;activeDoodleStroke.getPoints().add(new DoodlePoint(radius*Math.cos(angle)/cellSize,radius*Math.sin(angle)/cellSize));}
+                    for(int i=0;i<=48;i++){double angle=2*Math.PI*i/48;activeDoodleStroke.addPoint(radius*Math.cos(angle)/cellSize,radius*Math.sin(angle)/cellSize);}
                 }
             }
         }
-        if (doodleGesture == DoodleGesture.RECT_ERASER)
-            doodleErasePreview=DoodleGeometry.subtract(doodleStrokes,
-                    dragRectangle(doodleGestureStart,doodleGestureCurrent),getWidth(),getHeight(), stroke -> doodleProjection(stroke,getWidth(),getHeight()));
         if (doodleErasePreview != null) {
             if (!sameDoodles(doodleStrokes,doodleErasePreview)) {
                 pushDoodleUndo();doodleStrokes.clear();doodleStrokes.addAll(doodleErasePreview);reconcileDoodleComposition();
@@ -4085,26 +5234,26 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             if(a.get(i).getAnchorCell()!=b.get(i).getAnchorCell() || a.get(i).getAnchorDigit()!=b.get(i).getAnchorDigit()
                     || a.get(i).getCandidateMarkKind()!=b.get(i).getCandidateMarkKind()
                     || a.get(i).getThoughtGroup()!=b.get(i).getThoughtGroup()
+                    || a.get(i).isProofOnly()!=b.get(i).isProofOnly()
+                    || a.get(i).getDerivedSourceId()!=b.get(i).getDerivedSourceId()
 					|| a.get(i).isConclusionOutlined()!=b.get(i).isConclusionOutlined()
                     || !java.util.Objects.equals(a.get(i).getColor(),b.get(i).getColor())
                     || Float.compare(a.get(i).getWidthFactor(),b.get(i).getWidthFactor())!=0)return false;
-            List<DoodlePoint> ap=a.get(i).getPoints(),bp=b.get(i).getPoints();
-            if(ap.size()!=bp.size() || a.get(i).isHypothesisStart()!=b.get(i).isHypothesisStart()
+            DoodleStroke ap=a.get(i),bp=b.get(i);
+            if(ap.pointCount()!=bp.pointCount() || a.get(i).isHypothesisStart()!=b.get(i).isHypothesisStart()
                     || a.get(i).getHypothesisConditionId()!=b.get(i).getHypothesisConditionId()
                     || a.get(i).getHypothesisGroupKind()!=b.get(i).getHypothesisGroupKind()
                     || a.get(i).getConclusionSourceMask()!=b.get(i).getConclusionSourceMask())return false;
-            for(int j=0;j<ap.size();j++) if(Math.abs(ap.get(j).getX()-bp.get(j).getX())>1e-9
-                    || Math.abs(ap.get(j).getY()-bp.get(j).getY())>1e-9)return false;
+            for(int j=0;j<ap.pointCount();j++) if(Math.abs(ap.pointX(j)-bp.pointX(j))>1e-9
+                    || Math.abs(ap.pointY(j)-bp.pointY(j))>1e-9)return false;
         }
         return true;
     }
 
 	private double getDoodleStrokeDistance(DoodleStroke stroke) {
 		double distance = 0.0;
-		for (int i = 1; i < stroke.getPoints().size(); i++) {
-			DoodlePoint previous = stroke.getPoints().get(i - 1);
-			DoodlePoint current = stroke.getPoints().get(i);
-			distance += Math.hypot(current.getX() - previous.getX(), current.getY() - previous.getY());
+		for (int i = 1; i < stroke.pointCount(); i++) {
+			distance += Math.hypot(stroke.pointX(i) - stroke.pointX(i - 1), stroke.pointY(i) - stroke.pointY(i - 1));
 		}
 		return distance;
 	}
@@ -4113,10 +5262,10 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		return point.x >= 0 && point.y >= 0 && point.x < getWidth() && point.y < getHeight();
 	}
 
-	private DoodlePoint toDoodlePoint(Point point) {
+	private void appendDoodlePoint(DoodleStroke stroke, Point point) {
 		double x = Math.max(0.0, Math.min(1.0, point.x / (double) Math.max(1, getWidth())));
 		double y = Math.max(0.0, Math.min(1.0, point.y / (double) Math.max(1, getHeight())));
-		return new DoodlePoint(x, y);
+		stroke.addPoint(x, y);
 	}
 
 	private void pushDoodleUndo() {
@@ -4174,8 +5323,11 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	private List<DoodleStroke> pruneDoodlesToCurrentCandidates(List<DoodleStroke> source) {
 		List<DoodleStroke> result = new ArrayList<DoodleStroke>();
+        Set<Integer> satisfiedSources = satisfiedDerivedDoodleSources(source);
 		for (DoodleStroke stroke : source) {
-			if (!stroke.isCandidateAnchored() || hasCandidateAnchor(stroke.getAnchorCell(), stroke.getAnchorDigit())) {
+            if (!stroke.isProofOnly() && stroke.isHypothesisStart()
+                    && satisfiedSources.contains(stroke.getDerivedSourceId())) continue;
+			if (stroke.isProofOnly() || !stroke.isCandidateAnchored() || hasCandidateAnchor(stroke.getAnchorCell(), stroke.getAnchorDigit())) {
 				result.add(stroke.copy());
 			}
 		}
@@ -4183,6 +5335,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	public void clearDoodlesWithUndo() {
+        if(annotationTool==AnnotationTool.DOODLE&&heldPaletteDeleteGroup()>=0) {clearHeldPaletteWithUndo();return;}
         flushMappedClick();cancelMappedActiveGesture();
 		clearDoodlesWithUndo(true);
 	}
@@ -4300,60 +5453,125 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	private void drawBoxReasoningCellUnderlay(Graphics2D graphics, int cellIndex, int x, int y,
-			SudokuAppearancePalette appearance, Color cellBackground) {
-		if (!boxReasoningVisible || (!hasBoxReasoningCells() && boxDragPreview == null)) {
-			return;
-		}
-		float annotationAlpha = annotationOpacity();
-		for (int group = 0; group < boxReasoningGroups.size(); group++) {
-			if (!isBoxReasoningCellPredicted(group, cellIndex) || !paintAnnotation("box:"+group+":"+cellIndex)) {
-				continue;
-			}
-			Color color = Options.getInstance().getColoringColors()[group * 2];
-			Color boundaryColor = appearance.getReasoningBoundaryColor(color, cellBackground);
-			boolean active = group == activeBoxReasoningGroup;
-			Graphics2D copy = (Graphics2D) graphics.create();
-			try {
-				if (active) {
-					copy.setComposite(AlphaComposite.SrcOver.derive(0.06f * annotationAlpha));
-					copy.setColor(color);
-					copy.fillRect(x, y, cellSize, cellSize);
-				}
-				copy.setComposite(AlphaComposite.SrcOver.derive(annotationAlpha));
-				float width = Math.max(1.4f, cellSize / 34.0f);
-				if (active) {
-					copy.setStroke(new BasicStroke(width, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-				} else {
-					float dash = Math.max(2.0f, cellSize / 14.0f);
-					copy.setStroke(new BasicStroke(width, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND,
-							10.0f, new float[] { dash, dash * 0.7f }, 0.0f));
-				}
-				copy.setColor(boundaryColor);
-				int inset = Math.min(cellSize / 5, 2 + group * Math.max(1, cellSize / 45));
-				int left = x + inset;
-				int right = x + cellSize - inset;
-				int top = y + inset;
-				int bottom = y + cellSize - inset;
-				int row = Sudoku2.getRow(cellIndex);
-				int col = Sudoku2.getCol(cellIndex);
-				if (row == 0 || !isBoxReasoningCellPredicted(group, cellIndex - 9)) {
-					copy.drawLine(left, top, right, top);
-				}
-				if (row == 8 || !isBoxReasoningCellPredicted(group, cellIndex + 9)) {
-					copy.drawLine(left, bottom, right, bottom);
-				}
-				if (col == 0 || !isBoxReasoningCellPredicted(group, cellIndex - 1)) {
-					copy.drawLine(left, top, left, bottom);
-				}
-				if (col == 8 || !isBoxReasoningCellPredicted(group, cellIndex + 1)) {
-					copy.drawLine(right, top, right, bottom);
-				}
-			} finally {
-				copy.dispose();
-			}
-		}
-		drawBoxReasoningComponentBadge(graphics, cellIndex, x, y, appearance, cellBackground);
-	}
+            SudokuAppearancePalette appearance, Color cellBackground) {
+        if (!boxReasoningVisible || annotationTool != AnnotationTool.BOX_SELECTION || replayReadOnly
+                || !isBoxReasoningCellPredicted(activeBoxReasoningGroup, cellIndex)
+                || !paintAnnotation("box:" + activeBoxReasoningGroup + ":" + cellIndex)) return;
+        Graphics2D copy = (Graphics2D) graphics.create();
+        try {
+            copy.setComposite(AlphaComposite.SrcOver.derive(.06f * annotationOpacity()));
+            copy.setColor(Options.getInstance().getColoringColors()[activeBoxReasoningGroup * 2]);
+            copy.fillRect(x, y, cellSize, cellSize);
+        } finally { copy.dispose(); }
+    }
+
+    /** Boundary ink follows the grid pass so a thick box line cannot erase a shared dash. */
+    private void drawBoxReasoningBoundaries(Graphics2D graphics, SudokuAppearancePalette appearance) {
+        if (!boxReasoningVisible || (!hasBoxReasoningCells() && boxDragPreview == null)) return;
+        int focused = annotationTool == AnnotationTool.BOX_SELECTION && !replayReadOnly
+                ? activeBoxReasoningGroup : -1;
+        Graphics2D copy = (Graphics2D) graphics.create();
+        try {
+            copy.setComposite(AlphaComposite.SrcOver.derive(annotationOpacity()));
+            for (int cell = 0; cell < Sudoku2.LENGTH; cell++) {
+                int x = getX(Sudoku2.getRow(cell), Sudoku2.getCol(cell));
+                int y = getY(Sudoku2.getRow(cell), Sudoku2.getCol(cell));
+                Color background = annotationCellBackgrounds[cell];
+                if (background == null) background = Sudoku2.getBlock(cell) % 2 == 0
+                        ? appearance.getDefaultCellColor() : appearance.getAlternateCellColor();
+                for (int side = 0; side < 4; side++) {
+                    int boundaryGroups = boxBoundaryGroups(cell, side);
+                    for (int group = 0; group < boxReasoningGroups.size(); group++) {
+                        if ((boundaryGroups & (1 << group)) == 0
+                                || !paintAnnotation("box:" + group + ":" + cell)) continue;
+                        Color source = Options.getInstance().getColoringColors()[group * 2];
+                        copy.setColor(appearance.getReasoningBoundaryColor(source, background));
+                        drawBoxBoundary(copy, x, y, side, group, boundaryGroups, group == focused);
+                    }
+                }
+                drawBoxReasoningComponentBadge(copy, cell, x, y, appearance, background);
+            }
+        } finally { copy.dispose(); }
+    }
+
+    /** Only groups sharing this actual cell edge need to share its limited space. */
+    private int boxBoundaryGroups(int cell, int side) {
+        int row = Sudoku2.getRow(cell), col = Sudoku2.getCol(cell);
+        int neighbor = side == 0 ? (row == 0 ? -1 : cell - 9)
+                : side == 1 ? (row == 8 ? -1 : cell + 9)
+                : side == 2 ? (col == 0 ? -1 : cell - 1) : (col == 8 ? -1 : cell + 1);
+        int groups = 0;
+        for (int group = 0; group < boxReasoningGroups.size(); group++)
+            if (isBoxReasoningCellPredicted(group, cell)
+                    && (neighbor < 0 || !isBoxReasoningCellPredicted(group, neighbor))) groups |= 1 << group;
+        return groups;
+    }
+
+    private void drawBoxBoundary(Graphics2D graphics, int x, int y, int side, int group,
+            int boundaryGroups, boolean active) {
+        double safeBand = boxSafeEdgeBand();
+        int count = Integer.bitCount(boundaryGroups);
+        float width = Math.max(1.2f, Math.min(2.1f, cellSize / 45.0f));
+        double inset;
+        if (count > 1) {
+            // Non-current sources keep the same outer track in M and S. A current
+            // solid contour gets an inner track, never an opaque cover over them.
+            width = (float)Math.min(width, safeBand * (active ? .4 : .5));
+            inset = active ? safeBand - width / 2.0 - .05 : width / 2.0;
+        } else {
+            width = (float)Math.min(width, safeBand - .3);
+            inset = Math.min(2, safeBand / 2.0);
+        }
+        double left = x + inset, right = x + cellSize - inset;
+        double top = y + inset, bottom = y + cellSize - inset;
+        if (active) {
+            graphics.setStroke(new BasicStroke(width, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND));
+        } else {
+            float dash = count > 1 ? (float)Math.min(6, cellSize / (count * 1.7))
+                    : Math.max(2f, cellSize / 14f);
+            float gap = count > 1 ? Math.max(1f, dash * .4f) : dash * .7f;
+            int rank = Integer.bitCount(boundaryGroups & ((1 << group) - 1));
+            float period = (dash + gap) * count;
+            // Fixed color order, independent of the focused group. Each source
+            // contributes repeated dashes along every shared edge, not one tick.
+            float phase = (period - rank * (dash + gap)) % period;
+            graphics.setStroke(new BasicStroke(width, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND,
+                    10f, new float[] { dash, period - dash }, phase));
+        }
+        graphics.draw(side == 0 ? new java.awt.geom.Line2D.Double(left, top, right, top)
+                : side == 1 ? new java.awt.geom.Line2D.Double(left, bottom, right, bottom)
+                : side == 2 ? new java.awt.geom.Line2D.Double(left, top, left, bottom)
+                : new java.awt.geom.Line2D.Double(right, top, right, bottom));
+    }
+
+    private double boxSafeEdgeBand() {
+        double margin = cellSize/6.0-candidateHeight*(Options.getInstance().isShowColorKuAct() ? .5 : .39);
+        if (doodleCandidateGlyphLayout != null && doodleCandidateGlyphLayout.cellSize == cellSize
+                && !Options.getInstance().isShowColorKuAct()) {
+            margin=cellSize;
+            for(int style=0;style<2;style++)for(int d=1;d<=9;d++) {
+                java.awt.geom.Rectangle2D bounds=doodleCandidateGlyphLayout.bounds[style][d];
+                double cx=doodleCandidateGlyphLayout.centerX[style][d],cy=doodleCandidateGlyphLayout.centerY[style][d];
+                margin=Math.min(margin,Math.min(Math.min(cx,cellSize-cx)-bounds.getWidth()/2,
+                        Math.min(cy,cellSize-cy)-bounds.getHeight()/2));
+            }
+        }
+        return Math.max(.8,Math.min(cellSize*.12,margin-1.25));
+    }
+    private void drawBoxSourceLabel(Graphics2D graphics, int group, int x, int y, Color color) {
+        double safeBand = boxSafeEdgeBand();
+        if (safeBand < 10) return;
+        double center = x + (group % 3 + .5) * cellSize / 3.0;
+        double inset = Math.min(2, safeBand / 2);
+        double edge = group < 3 ? y + inset : y + cellSize - inset;
+        Font font = candidateFont.deriveFont(Font.BOLD, (float)Math.min(9, safeBand - 3));
+        graphics.setColor(color);
+        graphics.setFont(font);
+        FontMetrics metrics = graphics.getFontMetrics();
+        String label = Character.toString((char)('A' + group));
+        graphics.drawString(label, (float)(center - metrics.stringWidth(label) / 2.0),
+                (float)(group < 3 ? edge + metrics.getAscent() + 1 : edge - metrics.getDescent() - 1));
+    }
 
 	private boolean hasBoxReasoningCells() {
 		for (SudokuSet group : boxReasoningGroups) {
@@ -4364,6 +5582,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	private void drawBoxReasoningComponentBadge(Graphics2D graphics, int cellIndex, int x, int y,
 			SudokuAppearancePalette appearance, Color cellBackground) {
+        if (boxSafeEdgeBand() < 10) return;
 		List<Integer> anchoredGroups = new ArrayList<Integer>(6);
 		for (int group = 0; group < boxReasoningGroups.size(); group++) {
 			if (isBoxReasoningComponentAnchor(group, cellIndex) && paintAnnotation("box:"+group+":"+cellIndex)) {
@@ -4378,11 +5597,12 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				copy.setComposite(AlphaComposite.SrcOver.derive(annotationOpacity()));
 			}
 			copy.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-			if (anchoredGroups.size() > 1 || cellSize < 48) {
-				drawStackedBoxReasoningBadge(copy, anchoredGroups, x, y, appearance, cellBackground);
-			} else {
-				drawSingleBoxReasoningBadge(copy, anchoredGroups.get(0).intValue(), x, y);
-			}
+            for(int group:anchoredGroups) {
+                Color color=appearance.getReasoningBoundaryColor(Options.getInstance().getColoringColors()[group*2],cellBackground);
+                copy.setComposite(AlphaComposite.SrcOver.derive(Math.min(annotationOpacity(),
+                        annotationFocusOpacity(AnnotationTool.BOX_SELECTION,Options.getInstance().getColoringColors()[group*2]))));
+                drawBoxSourceLabel(copy,group,x,y,color);
+            }
 		} finally {
 			copy.dispose();
 		}
@@ -4509,7 +5729,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	private void drawBoxReasoningDragRubberBand(Graphics2D graphics) {
-		if (boxDragStart == null || boxDragCurrent == null || boxDragStart.distance(boxDragCurrent) < 4.0) {
+		if (boxDragStart == null || boxDragCurrent == null || boxDragStart.equals(boxDragCurrent)) {
 			return;
 		}
 		int x = Math.min(boxDragStart.x, boxDragCurrent.x);
@@ -4529,11 +5749,154 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		}
 	}
 
+    private int displayedDoodleGroup() {
+        return annotationTool == AnnotationTool.FREE_CHAIN
+                ? Options.getInstance().getAnnotationPaletteGroup(AnnotationPaletteOwner.DOODLE)
+                : cellZoomPanel == null ? -1 : cellZoomPanel.getPaletteGroup();
+    }
+
+    private List<DoodleStroke> currentDoodleSources() {
+        List<DoodleStroke> sources = new ArrayList<DoodleStroke>();
+        if (replayReadOnly || step != null || cellZoomPanel == null
+                || (annotationTool != AnnotationTool.DOODLE && annotationTool != AnnotationTool.FREE_CHAIN)) return sources;
+        int group = displayedDoodleGroup();
+        Set<Integer> ids = new HashSet<Integer>();
+        for (DoodleStroke mark : activeDoodleMarks()) if (mark.getThoughtGroup() == group && mark.getDerivedSourceId() != 0)
+            ids.add(mark.getDerivedSourceId());
+        for (DoodleStroke mark : doodleStrokes) if (mark.isProofOnly() && ids.contains(mark.getDerivedSourceId())) sources.add(mark);
+        if (annotationTool == AnnotationTool.FREE_CHAIN) {
+            int mask = 0;
+            List<DoodleDerivedBasis.WeakRelation> relations = derivedDoodleAnalysis(false).getWeakRelations();
+            for (UserChain chain : currentReasoningChains()) {
+                for (int edge = 0; edge < chain.getStrongRelations().size() && edge + 1 < chain.getNodes().size(); edge++) {
+                    if (chain.getStrongRelations().get(edge)) continue;
+                    UserChainNode left = chain.getNodes().get(edge), right = chain.getNodes().get(edge + 1);
+                    for (DoodleDerivedBasis.WeakRelation relation : relations)
+                        if ((relation.getLeft().key().equals(left.key()) && relation.getRight().key().equals(right.key()))
+                                || (relation.getRight().key().equals(left.key()) && relation.getLeft().key().equals(right.key()))) {
+                            mask |= relation.getEvidence().get(0).getProofGroupMask(); break;
+                        }
+                }
+            }
+            if (mask != 0) for (DoodleStroke mark : activeDoodleMarks())
+                if (mark.getThoughtGroup() >= 0 && (mask & 1 << mark.getThoughtGroup()) != 0) sources.add(mark);
+        }
+        return sources;
+    }
+
+    private List<DoodleStroke> visibleDoodleInk(List<DoodleStroke> ink, List<DoodleStroke> sources) {
+        Set<String> sourceKeys = new HashSet<String>();
+        for (DoodleStroke source : sources) sourceKeys.add(doodleTimeKey(source));
+        int currentGroup = displayedDoodleGroup();
+        boolean currentAdopted = false;
+        Set<DoodleStroke> liveSources = new HashSet<DoodleStroke>();
+        for (DoodleStroke source : sources) if (!source.isProofOnly()) liveSources.add(source);
+        for (DoodleStroke mark : ink) if (!mark.isProofOnly() && mark.getDerivedSourceId() != 0
+                && mark.getThoughtGroup() == currentGroup) currentAdopted = true;
+        List<DoodleStroke> visible = new ArrayList<DoodleStroke>();
+        for (DoodleStroke mark : ink) if (!mark.isProofOnly()
+                && (currentAdopted && mark.getThoughtGroup() == currentGroup && !liveSources.contains(mark)
+                    || sourceKeys.isEmpty() || !sourceKeys.contains(doodleTimeKey(mark)))) visible.add(mark);
+        return visible;
+    }
+
+    private void drawDoodleSources(Graphics2D graphics, List<DoodleStroke> sources, int width, int height) {
+        if (!optionPreviewHeld && !middlePreviewHeld) return;
+        Set<String> drawn = new HashSet<String>();
+        java.awt.Composite original = graphics.getComposite();
+        graphics.setComposite(AlphaComposite.SrcOver.derive(0.42f));
+        for (DoodleStroke source : sources) {
+            if (!drawn.add(doodleTimeKey(source))) continue;
+            Shape path = projectedDoodlePath(source, width, height);
+            if (path == null) continue;
+            graphics.setColor(source.getColor());
+            graphics.setStroke(new BasicStroke(doodleStrokePixelWidth(source, width, height), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            graphics.draw(path);
+        }
+        graphics.setComposite(original);
+    }
+
+    /** Prepared once for the retained and pending passes of one synchronous draw. */
+    private static final class DoodlePaintState {
+        final List<DoodleStroke> sources, visibleInk;
+        final DoodleFrameIndex frame;
+        DoodlePaintState(List<DoodleStroke> sources, List<DoodleStroke> visibleInk,
+                DoodleFrameIndex frame) {
+            this.sources = sources; this.visibleInk = visibleInk;
+            this.frame = frame;
+        }
+    }
+    private Set<DoodleStroke> doodleErasePaintGhosts;
+
+    private DoodlePaintState prepareDoodlePaintState() {
+        reconcileDoodleComposition();
+        List<DoodleStroke> sources = currentDoodleSources();
+        List<DoodleStroke> visibleInk = visibleDoodleInk(doodleErasePreview != null ? doodleErasePreview : doodleStrokes, sources);
+        List<DoodleStroke> originalInk = visibleInk;
+        visibleInk = doodlePresentationInk(visibleInk, displayedDoodleContradiction());
+        if (!doodleEraseGhosts.isEmpty()) {
+            // Ghosts only enter the paint index, never the premise analysis.
+            visibleInk = new ArrayList<DoodleStroke>(visibleInk);
+            visibleInk.addAll(visibleDoodleInk(doodleEraseGhosts, sources));
+        }
+        DoodleFrameIndex frame = new DoodleFrameIndex(originalInk, visibleInk, replayReadOnly);
+        return new DoodlePaintState(sources, visibleInk, frame);
+    }
+
 	private void drawDoodles(Graphics2D graphics, int width, int height, boolean boardOnly) {
-		DoodleStroke pending=pendingDoodleMark();
-		if (!doodlesVisible || (doodleStrokes.isEmpty() && activeDoodleStroke == null && pending==null)) {
-			return;
-		}
+        drawDoodles(graphics, width, height, boardOnly, (DoodleFrameIndex)null);
+    }
+    private void drawDoodles(Graphics2D graphics, int width, int height, boolean boardOnly, DoodleFrameIndex frame) {
+        DoodleStroke pending = pendingDoodleMark();
+        if (!doodlesVisible || (doodleStrokes.isEmpty() && activeDoodleStroke == null && pending == null)) return;
+        Set<DoodleStroke> previousGhosts = doodleErasePaintGhosts;
+        doodleErasePaintGhosts = doodleEraseGhosts.isEmpty() ? java.util.Collections.<DoodleStroke>emptySet()
+                : new HashSet<DoodleStroke>(doodleEraseGhosts);
+        try { drawDoodles(graphics, width, height, boardOnly, prepareDoodlePaintState(), pending); }
+        finally { doodleErasePaintGhosts = previousGhosts; }
+    }
+    private void drawDoodleLayer(Graphics2D graphics,int width,int height,boolean boardOnly,
+            DoodlePaintState state,boolean standard) {
+        if (!doodlesVisible) return;
+        int previousPass = doodleCandidatePaintPass;
+        Set<DoodleStroke> previousGhosts = doodleErasePaintGhosts;
+        doodleCandidatePaintPass = standard ? 2 : 1;
+        doodleErasePaintGhosts = new HashSet<DoodleStroke>(doodleEraseGhosts);
+        try { drawDoodles(graphics,width,height,boardOnly,state,pendingDoodleMark()); }
+        finally { doodleCandidatePaintPass=previousPass;doodleErasePaintGhosts=previousGhosts; }
+    }
+    private void drawDoodles(Graphics2D graphics, int width, int height, boolean boardOnly,
+            DoodlePaintState state, DoodleStroke pending) {
+        if (!doodleEraseGhosts.isEmpty() && doodleErasePaintPhase == 0) {
+            // Paint pending ink once on a separate layer. Src replaces overlapping
+            // samples there; one final alpha applies to the entire deletion preview.
+            if (doodleErasePaintLayer == null || doodleErasePaintLayer.getWidth() != width
+                    || doodleErasePaintLayer.getHeight() != height)
+                doodleErasePaintLayer = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB_PRE);
+            Graphics2D layer = doodleErasePaintLayer.createGraphics();
+            try {
+                layer.setComposite(AlphaComposite.Clear); layer.fillRect(0, 0, width, height);
+                layer.setComposite(AlphaComposite.SrcOver); layer.setRenderingHints(graphics.getRenderingHints());
+                doodleErasePaintPhase = 1; drawDoodles(graphics, width, height, boardOnly, state, pending);
+                doodleErasePaintPhase = 2; drawDoodles(layer, width, height, boardOnly, state, pending);
+                Graphics2D overlay = (Graphics2D)graphics.create();
+                try {
+                    // A standard ghost owns the overlap in the later pass; never fade it twice.
+                    if (doodleCandidatePaintPass == 1) {
+                        java.awt.geom.Area freeArea = new java.awt.geom.Area(new java.awt.Rectangle(0,0,width,height));
+                        for (DoodleStroke mark : doodleEraseGhosts) if (mark.isStandardCandidateMark()) {
+                            Shape path = projectedDoodlePath(mark,width,height);
+                            if (path != null) freeArea.subtract(new java.awt.geom.Area(new BasicStroke(
+                                    doodleStrokePixelWidth(mark,width,height)+1.4f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND).createStrokedShape(path)));
+                        }
+                        overlay.clip(freeArea);
+                    }
+                    overlay.setComposite(AlphaComposite.SrcOver.derive(0.25f)); overlay.drawImage(doodleErasePaintLayer, 0, 0, null);
+                }
+                finally { overlay.dispose(); }
+            } finally { doodleErasePaintPhase = 0; layer.dispose(); }
+            return;
+        }
 		Graphics2D copy = (Graphics2D) graphics.create();
 		try {
 			if (step != null) {
@@ -4542,43 +5905,42 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			if (boardOnly) {
 				copy.clip(gridRegion);
 			}
-            reconcileDoodleComposition();
-            List<DoodleStroke> visibleInk = doodleErasePreview != null ? doodleErasePreview : doodleStrokes;
-            Set<String> drawnComposites = new HashSet<String>();
+            DoodleFrameIndex frame = state.frame;
+            List<DoodleStroke> visibleInk = state.visibleInk;
+            if (doodleErasePaintPhase != 2 && doodleCandidatePaintPass != 1) drawDoodleSources(copy, state.sources, width, height);
+            boolean[] drawnComposites = new boolean[DoodleFrameIndex.KEY_COUNT];
 			for (DoodleStroke stroke : visibleInk) {
-                if(!paintAnnotation(step==null ? "" : doodleTimeKey(stroke)))continue;
-                if (doodleThoughtPreviewProjection != null && stroke.isStandardCandidateMark()
-                        && stroke.getThoughtGroup() == doodleThoughtPreviewProjection.group
-                        && doodleThoughtPreviewProjection.conflicts.contains(stroke.getAnchorCell()*10+stroke.getAnchorDigit())) continue;
+                if (doodleCandidatePaintPass == 1 && stroke.isStandardCandidateMark()
+                        || doodleCandidatePaintPass == 2 && !stroke.isStandardCandidateMark()) continue;
+				if (stroke.isRefutationResult() ? step != null && annotationPaintLayer != 2
+                        : !paintAnnotation(step == null ? "" : doodleTimeKey(stroke))) continue;
 				if (doodleThoughtPreviewProjection != null
 						&& stroke.isStandardCandidateMark()
 						&& stroke.getThoughtGroup() == doodleThoughtPreviewProjection.group
+                        && !doodleThoughtPreviewProjection.protectedCandidates.contains(stroke.getAnchorCell()*10+stroke.getAnchorDigit())
                         && stroke.getHypothesisGroupKind() != 1
                         && (stroke.getCandidateMarkKind()==DoodleStroke.MARK_TRUE_CIRCLE
+                            && doodleThoughtPreviewProjection.filledCells.containsKey(stroke.getAnchorCell())
                             || thoughtPreviewRemovesCandidate(stroke.getAnchorCell(),stroke.getAnchorDigit()))) continue;
 				java.awt.Composite originalComposite = copy.getComposite();
-                boolean shared = stroke.isStandardCandidateMark() && Integer.bitCount(
-                        getDoodleMarkSourceMask(stroke.getAnchorCell(),stroke.getAnchorDigit(),stroke.getCandidateMarkKind())) > 1;
-                boolean focusOtherGroup = annotationTool == AnnotationTool.DOODLE && !replayReadOnly
-                        && stroke.getThoughtGroup() >= 0 && stroke.getThoughtGroup() != cellZoomPanel.getPaletteGroup();
-                if (focusOtherGroup && !shared)
-                    copy.setComposite(AlphaComposite.SrcOver.derive(0.16f));
-                if(stroke.isStandardCandidateMark()&&stroke.getCandidateMarkKind()==DoodleStroke.MARK_FALSE_CROSS
-                        &&stroke.getThoughtGroup()==cellZoomPanel.getPaletteGroup()
-                        &&Integer.bitCount(getDoodleMarkSourceMask(stroke.getAnchorCell(),stroke.getAnchorDigit(),stroke.getCandidateMarkKind()))<=1
-                        &&fadeCurrentDoodleCross(stroke.getAnchorCell(),stroke.getAnchorDigit()))
-                    copy.setComposite(AlphaComposite.SrcOver.derive(0.45f));
+                boolean shared = stroke.isStandardCandidateMark() && frame.visibleSources(stroke).size() > 1;
+                if (stroke.isStandardCandidateMark() && !shared) {
+                    copy.setComposite(doodleFocusComposite(originalComposite,stroke));
+                }
                 if (stroke.isStandardCandidateMark() && (doodleThoughtPreviewProjection == null || shared)) {
-                    String key = stroke.getAnchorCell() + ":" + stroke.getAnchorDigit() + ":" + stroke.getCandidateMarkKind();
-                    if (drawnComposites.add(key)) drawDoodleComposite(copy, stroke, visibleInk, width, height);
+                    int key = DoodleFrameIndex.candidateKey(stroke);
+                    if (!drawnComposites[key]) {
+                        drawnComposites[key] = true;
+                        drawDoodleComposite(copy, stroke, frame, width, height);
+                    }
                 } else drawDoodleStroke(copy, stroke, width, height);
 				copy.setComposite(originalComposite);
 			}
 
-            if(pending!=null&&(step==null||annotationPaintLayer==2)) {
+            if(doodleCandidatePaintPass != 1 && doodleErasePaintPhase != 2 && pending!=null&&(step==null||annotationPaintLayer==2)) {
                 copy.setComposite(AlphaComposite.SrcOver);drawDoodleStroke(copy,pending,width,height);
             }
-			if (activeDoodleStroke != null && (step==null || annotationPaintLayer==2)) {
+			if (doodleCandidatePaintPass != 2 && doodleErasePaintPhase != 2 && activeDoodleStroke != null && (step==null || annotationPaintLayer==2)) {
                 copy.setComposite(AlphaComposite.SrcOver);
 				drawDoodleStroke(copy, activeDoodleStroke, width, height);
 			}
@@ -4588,61 +5950,129 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
     private void drawDoodleComposite(Graphics2D graphics, DoodleStroke base, List<DoodleStroke> ink, int width, int height) {
-        java.util.SortedMap<Integer, DoodleStroke> sources = new java.util.TreeMap<Integer, DoodleStroke>();
-        int activeGroup = replayReadOnly ? replayOutlineVisibleGroup : cellZoomPanel.getPaletteGroup();
-        for (DoodleStroke mark : ink) if (mark.isStandardCandidateMark()
-                && mark.getAnchorCell() == base.getAnchorCell() && mark.getAnchorDigit() == base.getAnchorDigit()
-                && mark.getCandidateMarkKind() == base.getCandidateMarkKind()) sources.put(mark.getThoughtGroup(), mark);
-        if (sources.size() <= 1) { drawDoodleStroke(graphics, base, width, height); return; }
+        drawDoodleComposite(graphics, base, new DoodleFrameIndex(doodleStrokes, ink), width, height);
+    }
+    private void drawDoodleComposite(Graphics2D graphics, DoodleStroke base, DoodleFrameIndex frame, int width, int height) {
+        List<DoodleStroke> sources = frame.visibleSources(base);
+        List<DoodleStroke> roles = frame.visibleRoleMarks(base);
+        int activeGroup = visibleDoodleIdentityGroup();
+        if (sources.size() <= 1 && roles.size() <= 1) { drawDoodleStroke(graphics, base, width, height); return; }
+        boolean paints = false;
+        for (DoodleStroke source : sources) if (paintsDoodleSource(source)) { paints = true; break; }
+        if (!paints) return;
         Shape path = projectedDoodlePath(base, width, height);
         java.awt.geom.AffineTransform projection = doodleProjection(base, width, height);
         if (path == null || projection == null) return;
         float markWidth = doodleStrokePixelWidth(base, width, height);
-        boolean selected = false;
-        for (DoodleStroke mark : sources.values()) if (mark.isConclusionOutlined()
-                && (mark.getThoughtGroup() == activeGroup || mark.getConclusionSourceMask() != 0)) selected = true;
-        for (DoodleStroke mark : sources.values()) {
-            if (mark.isHypothesisStart() && mark.getThoughtGroup() == activeGroup)
+        if (doodleErasePaintPhase == 0) drawDoodleSeparator(graphics,base,path,markWidth);
+        DoodleStroke selectedMark = null;
+        for (DoodleStroke mark : roles) if (activeGroup >= 0 && mark.isConclusionOutlined()
+                && (mark.getThoughtGroup() == activeGroup || mark.getConclusionSourceMask() != 0
+                    || replayReadOnly && mark.getThoughtGroup() < 0)
+                && (selectedMark == null || isDoodleEraseGhost(selectedMark))) selectedMark = mark;
+        boolean selected = selectedMark != null;
+        java.awt.Composite originalComposite = graphics.getComposite();
+        for (DoodleStroke mark : roles) {
+            if (mark.isHypothesisStart() && mark.getThoughtGroup() == activeGroup && paintsDoodleSource(mark)) {
+                graphics.setComposite(doodleErasureComposite(originalComposite,mark));
                 drawDoodleHypothesisOutline(graphics, mark, path, markWidth, selected);
+                graphics.setComposite(originalComposite);
+            }
         }
-        if (selected) drawDoodleConclusionOutline(graphics, base, path, markWidth);
-        java.util.List<DoodleStroke> ordered = new ArrayList<DoodleStroke>(sources.values());
+        if (selected && paintsDoodleSource(selectedMark)) {
+            graphics.setComposite(doodleErasureComposite(originalComposite,selectedMark));
+            drawDoodleConclusionOutline(graphics, selectedMark, path, markWidth);
+            graphics.setComposite(originalComposite);
+        }
+        List<DoodleStroke> ordered = sources;
         graphics.setStroke(new BasicStroke(markWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-        if (base.getCandidateMarkKind() == DoodleStroke.MARK_FALSE_CROSS && base.getPoints().size() >= 4) {
+        if (base.getCandidateMarkKind() == DoodleStroke.MARK_FALSE_CROSS && base.pointCount() >= 4) {
+            // Internal round caps obscure neighboring sources on compact crosses.
+            // Join color segments flush; only the two outer endpoints are rounded.
+            boolean compactCross = isCompactDoodleCross(base);
+            if (compactCross) graphics.setStroke(new BasicStroke(markWidth, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND));
             for (int line = 0; line < 2; line++) {
-                DoodlePoint a = base.getPoints().get(line * 2), b = base.getPoints().get(line * 2 + 1);
+                double ax = base.pointX(line * 2), ay = base.pointY(line * 2);
+                double bx = base.pointX(line * 2 + 1), by = base.pointY(line * 2 + 1);
                 for (int i = 0; i < ordered.size(); i++) {
+                    if (!paintsDoodleSource(ordered.get(i))) continue;
                     double t0 = i / (double) ordered.size(), t1 = (i + 1) / (double) ordered.size();
-                    Shape part = new java.awt.geom.Line2D.Double(a.getX()+(b.getX()-a.getX())*t0,
-                        a.getY()+(b.getY()-a.getY())*t0,a.getX()+(b.getX()-a.getX())*t1,a.getY()+(b.getY()-a.getY())*t1);
-                    graphics.setColor(ordered.get(i).getColor()); graphics.draw(projection.createTransformedShape(part));
+                    Shape part = new java.awt.geom.Line2D.Double(ax+(bx-ax)*t0,
+                        ay+(by-ay)*t0,ax+(bx-ax)*t1,ay+(by-ay)*t1);
+                    graphics.setComposite(doodleErasureComposite(doodleThoughtPreviewProjection != null ? originalComposite
+                            : doodleFocusComposite(originalComposite,ordered.get(i)),ordered.get(i)));
+                    graphics.setColor(doodleDisplayColor(ordered.get(i)));
+                    Shape projectedPart = projection.createTransformedShape(part);
+                    if (compactCross) graphics.fill(graphics.getStroke().createStrokedShape(projectedPart));
+                    else graphics.draw(projectedPart);
+                    if (compactCross && (i == 0 || i == ordered.size() - 1)) {
+                        Point2D point = projection.transform(new Point2D.Double(i == 0 ? ax : bx, i == 0 ? ay : by), null);
+                        graphics.fill(new java.awt.geom.Ellipse2D.Double(point.getX() - markWidth / 2,
+                                point.getY() - markWidth / 2, markWidth, markWidth));
+                    }
                 }
             }
         } else {
             java.awt.geom.Rectangle2D bounds = path.getBounds2D();
             double angle = 360.0/ordered.size();
             for (int i=0;i<ordered.size();i++) {
-                graphics.setColor(ordered.get(i).getColor());
+                if (!paintsDoodleSource(ordered.get(i))) continue;
+                graphics.setComposite(doodleErasureComposite(doodleThoughtPreviewProjection != null ? originalComposite
+                        : doodleFocusComposite(originalComposite,ordered.get(i)),ordered.get(i)));
+                graphics.setColor(doodleDisplayColor(ordered.get(i)));
                 graphics.draw(new java.awt.geom.Arc2D.Double(bounds.getX(),bounds.getY(),bounds.getWidth(),bounds.getHeight(),
                     -i*angle,-angle,java.awt.geom.Arc2D.OPEN));
             }
         }
+        graphics.setComposite(originalComposite);
+    }
+
+    private java.awt.Composite doodleFocusComposite(java.awt.Composite original, DoodleStroke stroke) {
+        // Source marks retain the mouse-mode appearance. Only current P identities
+        // are emphasized; do not add tool/group dimming to temporal or eraser alpha.
+        return original;
+    }
+
+    private boolean isDoodleEraseGhost(DoodleStroke stroke) {
+        return doodleErasePaintGhosts == null ? doodleEraseGhosts.contains(stroke) : doodleErasePaintGhosts.contains(stroke);
+    }
+    private boolean paintsDoodleSource(DoodleStroke stroke) {
+        return doodleErasePaintPhase == 0 || (doodleErasePaintPhase == 2) == isDoodleEraseGhost(stroke);
+    }
+    private java.awt.Composite doodleErasureComposite(java.awt.Composite original, DoodleStroke stroke) {
+        boolean pending = isDoodleEraseGhost(stroke);
+        if (doodleErasePaintPhase == 1 && pending || doodleErasePaintPhase == 2 && !pending)
+            return AlphaComposite.SrcOver.derive(0f);
+        if (!pending) return original;
+        float alpha = original instanceof AlphaComposite ? ((AlphaComposite)original).getAlpha() : 1.0f;
+        return doodleErasePaintPhase == 2 ? AlphaComposite.Src.derive(alpha) : AlphaComposite.SrcOver.derive(alpha * 0.25f);
     }
     private void drawDoodleHypothesisOutline(Graphics2D graphics, DoodleStroke mark, Shape path,
             float markWidth, boolean selected) {
         // State bands surround the same ink; they never replace its source-color segments.
-        float edge = Math.max(1.6f, Math.min(2.4f, cellSize / 50f));
-        float gap = Math.max(0.8f, Math.min(1.2f, cellSize / 100f));
-        float inset = selected ? doodleConclusionEdgeWidth(mark) : 0;
+        float edge = isCompactDoodleCross(mark) ? Math.max(1.15f, Math.min(1.6f, cellSize / 70f))
+                : isNativeCircleCoexistence(mark) ? Math.max(.75f,Math.min(1.2f,cellSize/100f))
+                : Math.max(1.6f, Math.min(2.4f, cellSize / 50f));
+        float gap = isCompactDoodleCross(mark) ? Math.max(0.6f, Math.min(0.85f, cellSize / 140f))
+                : isNativeCircleCoexistence(mark) ? .3f
+                : Math.max(0.8f, Math.min(1.2f, cellSize / 100f));
+        float inset = selected ? doodleConclusionGapWidth(mark) + doodleConclusionEdgeWidth(mark) : 0;
         Shape separator = doodleOuterRim(mark, path, markWidth, inset, gap);
         Shape outline = doodleOuterRim(mark, path, markWidth, inset + gap, edge);
         Graphics2D cue = (Graphics2D) graphics.create();
         try {
             // Follow the complete ink contour, like Command selection. Slot clipping
             // would cut off the green band when the original mark meets a cell border.
-            cue.setComposite(AlphaComposite.SrcOver);
-            cue.setColor(SudokuAppearancePalette.forRendering(false).getDefaultCellColor());
+            cue.setComposite(doodleErasureComposite(AlphaComposite.SrcOver, mark));
+            SudokuAppearancePalette appearance = SudokuAppearancePalette.forRendering(false);
+            Color identitySeparator = isCompactDoodleCross(mark)
+                    ? appearance.getAnnotationSeparator(new Color(0, 215, 45), candidateAnnotationBackground(
+                            mark.getAnchorCell(), mark.getAnchorDigit(), appearance))
+                    : appearance.getDefaultCellColor();
+            cue.setColor(identitySeparator);
             cue.fill(separator);
+            if (isCompactDoodleCross(mark))
+                cue.fill(doodleOuterRim(mark, path, markWidth, inset + gap + edge, .35f));
             cue.setColor(new Color(0, 215, 45));
             cue.fill(outline);
         } finally { cue.dispose(); }
@@ -4650,66 +6080,270 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
     private java.awt.geom.AffineTransform doodleProjection(DoodleStroke stroke, int width, int height) {
         if (!stroke.isCandidateAnchored())
             return java.awt.geom.AffineTransform.getScaleInstance(Math.max(1,width),Math.max(1,height));
-        if (!isUserChainCandidateVisible(stroke.getAnchorCell(),stroke.getAnchorDigit())) return null;
-        Point2D.Double center = getCandKoord(stroke.getAnchorCell(),stroke.getAnchorDigit(),cellSize);
+        if (!(replayReadOnly && stroke.isStandardCandidateMark()) && ((stroke.isContradictionWitness() || stroke.isRefutationResult() || stroke.isHypothesisStart())
+                ? !DoodleContradictionBasis.currentCandidate(sudoku, stroke.getAnchorCell(), stroke.getAnchorDigit())
+                : !isUserChainCandidateVisible(stroke.getAnchorCell(),stroke.getAnchorDigit()))) return null;
+        Point2D.Double center = stroke.isStandardCandidateMark() ? doodleCandidateGlyphCenter(
+                stroke.getAnchorCell(), stroke.getAnchorDigit())
+                : getCandKoord(stroke.getAnchorCell(),stroke.getAnchorDigit(),cellSize);
         java.awt.geom.AffineTransform projection = java.awt.geom.AffineTransform.getTranslateInstance(center.x,center.y);
         float markScale = candidateMarkScale(stroke);
+        if (isNativeCircleCoexistence(stroke)) {
+            double nativeSize=nativeCandidateMarkerSizes[stroke.getAnchorCell()*10+stroke.getAnchorDigit()];
+            double rimRadius=(nativeSize+4)/2;
+            if (SudokuAppearancePalette.forRendering(false).isDark() && !isAuthoredChainPreview()) {
+                double cornerRadius=(Math.max(2,nativeSize/3)+4)/2;
+                rimRadius=Math.sqrt(2)*(rimRadius-cornerRadius)+cornerRadius;
+            }
+            float rimWidth=Math.max(1.2f,Math.min(1.8f,cellSize/65f));
+            double minimumRadius=rimRadius+(rimWidth+1.2)/2
+                    +(doodleStrokePixelWidth(stroke,width,height)+.9)/2+.3;
+            double storedRadius=0;
+            for (DoodlePoint point:stroke.getPoints()) storedRadius=Math.max(storedRadius,Math.hypot(point.getX(),point.getY()));
+            if (storedRadius>0) markScale=(float)Math.max(markScale,minimumRadius/(storedRadius*Math.max(1,cellSize)));
+        }
+        if (isCompactDoodleCross(stroke) && stroke.pointCount() != 0) {
+            // A shared half-pixel arm length gives both diagonals identical endpoints.
+            double radius = Math.abs(stroke.pointX(0));
+            if (radius > 0) {
+                double arm = Math.max(1.5, Math.round(radius * Math.max(1, cellSize) * markScale * 2) / 2.0);
+                markScale = (float)(arm / (radius * Math.max(1, cellSize)));
+            }
+        }
         projection.scale(Math.max(1,cellSize) * markScale,Math.max(1,cellSize) * markScale);
         return projection;
     }
 
+    private boolean hasVisibleChainSource(int cell,int digit) {
+        if (!userChainsVisible) return false;
+        for (UserChain chain:userChains) for (UserChainNode node:chain.getNodes())
+            if (node.contains(cell,digit) && isUserChainNodeVisible(node)) return true;
+        if (activeUserChain!=null) for (UserChainNode node:activeUserChain.getNodes())
+            if (node.contains(cell,digit) && isUserChainNodeVisible(node)) return true;
+        return false;
+    }
+
+    private boolean isNativeCircleCoexistence(DoodleStroke stroke) {
+        return stroke.isStandardCandidateMark() && stroke.getCandidateMarkKind()==DoodleStroke.MARK_TRUE_CIRCLE
+                && nativeCandidateMarkerSizes[stroke.getAnchorCell()*10+stroke.getAnchorDigit()]>0
+                && hasVisibleChainSource(stroke.getAnchorCell(),stroke.getAnchorDigit());
+    }
+
 	private float candidateMarkScale(DoodleStroke stroke) {
-		return stroke.isStandardCandidateMark() && stroke.getCandidateMarkKind() == DoodleStroke.MARK_FALSE_CROSS
-				? (annotationTool==AnnotationTool.DOODLE&&!replayReadOnly?0.62f:STANDARD_CROSS_SCALE) : 1.0f;
+		return isCompactDoodleCross(stroke) ? 0.434f : 1.0f;
 	}
 
+    private boolean isCompactDoodleCross(DoodleStroke stroke) {
+        return stroke.isStandardCandidateMark() && stroke.getCandidateMarkKind() == DoodleStroke.MARK_FALSE_CROSS;
+    }
+
+    /** Reuse glyph bounds across repaints; eraser motion must not rebuild fonts/glyphs. */
+    private static final class DoodleCandidateGlyphLayout {
+        final Font font;
+        final Font chainFont;
+        final java.awt.font.FontRenderContext context;
+        final int cellSize;
+        final double[][] centerX = new double[2][10], centerY = new double[2][10];
+        final java.awt.geom.Rectangle2D[][] bounds = new java.awt.geom.Rectangle2D[2][10];
+        final Shape[][] glyphs = new Shape[2][10];
+        final java.awt.geom.Rectangle2D[] chainBounds = new java.awt.geom.Rectangle2D[10];
+        final Shape[] chainGlyphs = new Shape[10];
+
+        DoodleCandidateGlyphLayout(Font font, Graphics2D graphics, int cellSize) {
+            this.font = font;
+            this.chainFont = font.deriveFont(font.getSize2D() * .90f);
+            this.context = graphics.getFontRenderContext();
+            this.cellSize = cellSize;
+            FontMetrics metrics = graphics.getFontMetrics(font);
+            double third = cellSize / 3.0;
+            double offsetX = (third - metrics.stringWidth("8")) / 2.0;
+            double baselineY = (third + metrics.getAscent() - metrics.getDescent()) / 2.0;
+            for (int style = 0; style < 2; style++) {
+                Font displayedFont = style == 0 ? font : font.deriveFont(Font.BOLD);
+                for (int digit = 1; digit <= 9; digit++) {
+                    java.awt.font.GlyphVector glyph = displayedFont.createGlyphVector(context,Integer.toString(digit));
+                    java.awt.geom.Rectangle2D bounds = glyph.getVisualBounds();
+                    this.bounds[style][digit] = bounds;
+                    glyphs[style][digit] = glyph.getOutline();
+                    // Cell origins are integers. Cache each slot's rounded drawString
+                    // origin plus the visual center, so paint/hit paths only look up offsets.
+                    centerX[style][digit] = Math.round(offsetX + ((digit - 1) % 3) * third) + bounds.getCenterX();
+                    centerY[style][digit] = Math.round(baselineY + ((digit - 1) / 3) * third) + bounds.getCenterY();
+                }
+            }
+            for (int digit = 1; digit <= 9; digit++) {
+                java.awt.font.GlyphVector glyph = chainFont.createGlyphVector(context, Integer.toString(digit));
+                chainBounds[digit] = glyph.getVisualBounds();
+                chainGlyphs[digit] = glyph.getOutline();
+            }
+        }
+    }
+
+    private void prepareDoodleCandidateGlyphLayout(Graphics2D graphics) {
+        if (doodleCandidateGlyphLayout == null || doodleCandidateGlyphLayout.cellSize != cellSize
+                || !doodleCandidateGlyphLayout.font.equals(candidateFont)
+                || !doodleCandidateGlyphLayout.context.equals(graphics.getFontRenderContext()))
+            doodleCandidateGlyphLayout = new DoodleCandidateGlyphLayout(candidateFont, graphics, cellSize);
+        Arrays.fill(doodleCandidateBold, false);
+    }
+
+    private Point2D.Double doodleCandidateGlyphCenter(int cell, int digit) {
+        DoodleCandidateGlyphLayout layout = doodleCandidateGlyphLayout;
+        if (layout == null || layout.cellSize != cellSize || Options.getInstance().isShowColorKuAct())
+            return candidateSlotCenter(cell, digit, cellSize);
+        int style = doodleCandidateBold[cell * 10 + digit] ? 1 : 0;
+        double x = getX(Sudoku2.getRow(cell), Sudoku2.getCol(cell)) + layout.centerX[style][digit];
+        double y = getY(Sudoku2.getRow(cell), Sudoku2.getCol(cell)) + layout.centerY[style][digit];
+        return new Point2D.Double(x, y);
+    }
+
+    private int visibleDoodleIdentityGroup() {
+        return replayReadOnly ? replayOutlineVisibleGroup : annotationTool == AnnotationTool.DOODLE
+                && cellZoomPanel != null ? cellZoomPanel.getPaletteGroup() : -1;
+    }
+    private void drawDoodleSeparator(Graphics2D graphics,DoodleStroke mark,Shape path,float width) {
+        if (!mark.isStandardCandidateMark()) return;
+        SudokuAppearancePalette appearance = SudokuAppearancePalette.forRendering(false);
+        Color background = candidateAnnotationBackground(mark.getAnchorCell(),mark.getAnchorDigit(),appearance);
+        graphics.setColor(appearance.getAnnotationSeparator(doodleDisplayColor(mark),background));
+        Shape separator = new BasicStroke(width+(isNativeCircleCoexistence(mark) ? .9f : 1.2f),
+                BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND).createStrokedShape(path);
+        if (isCompactDoodleCross(mark)) {
+            java.awt.geom.Area outsideGlyph = new java.awt.geom.Area(separator);
+            protectDoodleCandidateGlyph(outsideGlyph, mark);
+            separator = outsideGlyph;
+        }
+        graphics.fill(separator);
+    }
+    private Color candidateAnnotationBackground(int cell, int digit, SudokuAppearancePalette appearance) {
+        Color color = annotationCandidateBackgrounds[cell*10+digit];
+        if (color == null) color = annotationCellBackgrounds[cell];
+        return color != null ? color : (Sudoku2.getBlock(cell)%2 == 0
+                ? appearance.getDefaultCellColor() : appearance.getAlternateCellColor());
+    }
+    private double candidateNodeDisplayDiameter(int cell, int digit, double original, boolean bold) {
+        double base = original > 0 ? original : Math.max(10, cellSize/5.0);
+        double minimum = Math.max(8, candidateHeight*0.78);
+        if (doodleCandidateGlyphLayout != null && !Options.getInstance().isShowColorKuAct()) {
+            java.awt.geom.Rectangle2D bounds = doodleCandidateGlyphLayout.bounds[bold ? 1 : 0][digit];
+            minimum = Math.hypot(bounds.getWidth(), bounds.getHeight()) + Math.max(1.5, cellSize/70.0);
+        }
+        return Math.max(minimum, Math.min(base*0.82, cellSize/3.0-4));
+    }
+    private double candidateColorTileSize(int cell, int digit, double original) {
+        Point2D.Double center = getCandKoord(cell,digit,cellSize);
+        Point2D.Double slot = candidateSlotCenter(cell,digit,cellSize);
+        double room = cellSize/3.0 - 2*Math.max(Math.abs(center.x-slot.x), Math.abs(center.y-slot.y)) - 1;
+        double node = candidateNodeDisplayDiameter(cell,digit,original,true);
+        return Math.max(4, Math.min(room, Math.max(original, node+3)));
+    }
+    private void drawCandidateColorTile(Graphics2D graphics, int cell, int digit, double original,
+            Color color, Color background, SudokuAppearancePalette appearance, boolean allBlack) {
+        Point2D.Double center = getCandKoord(cell,digit,cellSize);
+        double size = candidateColorTileSize(cell,digit,original);
+        Shape square = new java.awt.geom.Rectangle2D.Double(center.x-size/2,center.y-size/2,size,size);
+        Graphics2D g = (Graphics2D)graphics.create();
+        try {
+            setColor(g,allBlack,color); g.fill(square);
+            float width = Math.max(0.7f,Math.min(1.2f,cellSize/100f));
+            g.setStroke(new BasicStroke(width));
+            setColor(g,allBlack,appearance.getAnnotationSeparator(color,background)); g.draw(square);
+        } finally { g.dispose(); }
+        annotationCandidateBackgrounds[cell*10+digit] = color;
+    }
+    private Shape nativeCandidateShape(int cell, int digit, SudokuAppearancePalette appearance) {
+        Point2D.Double center = getCandKoord(cell,digit,cellSize);
+        double size = nativeCandidateMarkerSizes[cell*10+digit];
+        return appearance.isDark() && !isAuthoredChainPreview() ? new java.awt.geom.RoundRectangle2D.Double(
+                center.x-size/2,center.y-size/2,size,size,Math.max(2,size/3),Math.max(2,size/3))
+                : new java.awt.geom.Ellipse2D.Double(center.x-size/2,center.y-size/2,size,size);
+    }
+    private void drawCenteredCandidateGlyph(Graphics2D g,int cell,int digit,Point2D.Double center,boolean bold) {
+        g.setFont(bold ? candidateFont.deriveFont(Font.BOLD) : candidateFont);
+        java.awt.geom.Rectangle2D bounds = doodleCandidateGlyphLayout == null
+                || doodleCandidateGlyphLayout.cellSize != cellSize || Options.getInstance().isShowColorKuAct() ?
+                g.getFont().createGlyphVector(g.getFontRenderContext(),Integer.toString(digit)).getVisualBounds()
+                : doodleCandidateGlyphLayout.bounds[bold ? 1 : 0][digit];
+        g.drawString(Integer.toString(digit),(float)(center.x-bounds.getCenterX()),(float)(center.y-bounds.getCenterY()));
+    }
+
+    /** Only authored chain ink uses the smaller type; background and shared anchors stay fixed. */
+    private void drawCenteredChainGlyph(Graphics2D g, int digit, Point2D.Double center) {
+        DoodleCandidateGlyphLayout layout = doodleCandidateGlyphLayout;
+        boolean cached = layout != null && layout.cellSize == cellSize && layout.font.equals(candidateFont)
+                && layout.context.equals(g.getFontRenderContext());
+        g.setFont(cached ? layout.chainFont : candidateFont.deriveFont(candidateFont.getSize2D() * .90f));
+        java.awt.geom.Rectangle2D bounds = cached ? layout.chainBounds[digit]
+                : g.getFont().createGlyphVector(g.getFontRenderContext(), Integer.toString(digit)).getVisualBounds();
+        g.drawString(Integer.toString(digit), (float)(center.x - bounds.getCenterX()),
+                (float)(center.y - bounds.getCenterY()));
+    }
+
     private void drawDoodleStroke(Graphics2D graphics, DoodleStroke stroke, int width, int height) {
-        if (stroke == null || stroke.getPoints().size() < 2) return;
+        if (stroke == null || stroke.pointCount() < 2 || !paintsDoodleSource(stroke)) return;
 		Shape path = projectedDoodlePath(stroke, width, height);
 		if (path == null) return;
+        java.awt.Composite originalComposite = graphics.getComposite();
+        graphics.setComposite(doodleErasureComposite(originalComposite,stroke));
+        try {
 		float markWidth = doodleStrokePixelWidth(stroke, width, height);
-		int visibleOutlineGroup = replayReadOnly ? replayOutlineVisibleGroup
-				: cellZoomPanel == null ? -1 : cellZoomPanel.getPaletteGroup();
-        if (stroke.isHypothesisStart() && stroke.getThoughtGroup() == visibleOutlineGroup)
+        int visibleOutlineGroup = visibleDoodleIdentityGroup();
+        drawDoodleSeparator(graphics,stroke,path,markWidth);
+        if (visibleOutlineGroup >= 0 && stroke.isHypothesisStart() && stroke.getThoughtGroup() == visibleOutlineGroup)
             drawDoodleHypothesisOutline(graphics, stroke, path, markWidth, stroke.isConclusionOutlined());
-		if (stroke.isStandardCandidateMark() && stroke.isConclusionOutlined()
-				&& stroke.getThoughtGroup() == visibleOutlineGroup) {
+		if (visibleOutlineGroup >= 0 && stroke.isStandardCandidateMark() && stroke.isConclusionOutlined()
+				&& (stroke.getThoughtGroup() == visibleOutlineGroup || replayReadOnly && stroke.getThoughtGroup() < 0)) {
             java.awt.Composite markComposite=graphics.getComposite();
-            graphics.setComposite(AlphaComposite.SrcOver);
+            graphics.setComposite(doodleErasureComposite(AlphaComposite.SrcOver, stroke));
 			drawDoodleConclusionOutline(graphics, stroke, path, markWidth);
             graphics.setComposite(markComposite);
 		}
-		graphics.setColor(stroke.getColor());
-		graphics.setStroke(new BasicStroke(markWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-		graphics.draw(path);
+		graphics.setColor(doodleDisplayColor(stroke));
+        BasicStroke pen = new BasicStroke(markWidth, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND);
+		graphics.setStroke(pen);
+        // Fill the same geometric ink used by the rims, avoiding separate stroke
+        // normalization of a very small X relative to its green/blue contours.
+        if (isCompactDoodleCross(stroke)) graphics.fill(pen.createStrokedShape(path));
+        else graphics.draw(path);
+        } finally { graphics.setComposite(originalComposite); }
     }
 
 	private Shape projectedDoodlePath(DoodleStroke stroke, int width, int height) {
 		java.awt.geom.AffineTransform projection = doodleProjection(stroke, width, height);
-		if (projection == null || stroke.getPoints().size() < 2) return null;
+		if (projection == null || stroke.pointCount() < 2) return null;
 		Path2D.Double path = new Path2D.Double();
-		DoodlePoint first = stroke.getPoints().get(0);
-		path.moveTo(first.getX(), first.getY());
-		for (int i = 1; i < stroke.getPoints().size(); i++) {
+		path.moveTo(stroke.pointX(0), stroke.pointY(0));
+		for (int i = 1; i < stroke.pointCount(); i++) {
 			if (stroke.getCandidateMarkKind() == DoodleStroke.MARK_FALSE_CROSS && i == 2) {
-				DoodlePoint point = stroke.getPoints().get(i);
-				path.moveTo(point.getX(), point.getY());
+				path.moveTo(stroke.pointX(i), stroke.pointY(i));
 				continue;
 			}
-			DoodlePoint point = stroke.getPoints().get(i);
-			path.lineTo(point.getX(), point.getY());
+			path.lineTo(stroke.pointX(i), stroke.pointY(i));
 		}
 		return projection.createTransformedShape(path);
 	}
 
 	private float doodleStrokePixelWidth(DoodleStroke stroke, int width, int height) {
 		float scale = stroke.isCandidateAnchored() ? cellSize : Math.min(width, height);
-        float widthValue = Math.max(2.0f, scale * stroke.getWidthFactor()) * candidateMarkScale(stroke);
-        return widthValue;
+        float widthValue = Math.max(2.0f, scale * stroke.getWidthFactor());
+        // Hint co-existence has a finite annular budget. Preserve brush ordering
+        // while keeping a wide source circle plus its two role bands out of adjacent digits.
+        if (isNativeCircleCoexistence(stroke)) return widthValue/(1+widthValue/2.4f);
+        // A false mark must leave its candidate legible even with a thick free pen.
+        // Keep the thicker pen proportional to the small candidate's available area.
+        float crossLimit = Math.max(1.25f, Math.min(2.2f, cellSize * .025f));
+        return isCompactDoodleCross(stroke) ? Math.max(1.25f, Math.min(crossLimit, widthValue * 0.45f))
+                : widthValue * candidateMarkScale(stroke);
 	}
 
+    private float doodleConclusionGapWidth(DoodleStroke stroke) {
+        return isCompactDoodleCross(stroke) ? Math.max(.5f, Math.min(.8f, cellSize / 160f)) : 0f;
+    }
+
     private float doodleConclusionEdgeWidth(DoodleStroke stroke) {
-        return Math.max(1.25f, Math.min(2.4f, cellSize / 42.0f)) * candidateMarkScale(stroke);
+        if (isNativeCircleCoexistence(stroke)) return Math.max(.6f,Math.min(1f,cellSize/120f));
+        return isCompactDoodleCross(stroke) ? Math.max(1.05f, Math.min(1.45f, cellSize / 85f))
+                : Math.max(1.25f, Math.min(2.4f, cellSize / 42.0f)) * candidateMarkScale(stroke);
     }
 
     /** Outside-only rim: circles retain their empty center; crosses follow both diagonal strokes. */
@@ -4722,36 +6356,77 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             java.awt.geom.Area rim = new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(x, y, w, h));
             rim.subtract(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(
                     x + edge, y + edge, w - edge * 2, h - edge * 2)));
+            if (isNativeCircleCoexistence(stroke)) protectNeighborCandidateGlyphs(rim,stroke);
             return rim;
         }
         java.awt.geom.Area rim = new java.awt.geom.Area(new BasicStroke(markWidth + (inset + edge) * 2,
                 BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND).createStrokedShape(path));
         rim.subtract(new java.awt.geom.Area(new BasicStroke(markWidth + inset * 2,
                 BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND).createStrokedShape(path)));
+        // Extra identity bands must not consume the digit left visible between the X arms.
+        // The source X keeps its geometry; only its green/blue outer cues yield to the glyph.
+        protectDoodleCandidateGlyph(rim, stroke);
         return rim;
     }
 
-    private void drawDoodleConclusionOutline(Graphics2D graphics, DoodleStroke stroke, Shape path, float markWidth) {
-        graphics.setColor(DOODLE_CONCLUSION_OUTLINE_COLOR);
-        graphics.fill(doodleOuterRim(stroke, path, markWidth, 0, doodleConclusionEdgeWidth(stroke)));
+    /** Protect the glyph actually drawn, rather than the union of unused font styles. */
+    private void protectDoodleCandidateGlyph(java.awt.geom.Area ink, DoodleStroke stroke) {
+        if (doodleCandidateGlyphLayout != null && !Options.getInstance().isShowColorKuAct()) {
+            int cell = stroke.getAnchorCell(), digit = stroke.getAnchorDigit();
+            Point2D.Double center = getCandKoord(cell, digit, cellSize);
+            boolean nativeMarker = step != null && nativeCandidateMarkerSizes[cell*10+digit] > 0;
+            boolean chainGlyph = nativeMarker ? isAuthoredChainPreview() : hasVisibleChainSource(cell, digit);
+            int style = doodleCandidateBold[cell*10+digit] ? 1 : 0;
+            java.awt.geom.Rectangle2D bounds = chainGlyph ? doodleCandidateGlyphLayout.chainBounds[digit]
+                    : doodleCandidateGlyphLayout.bounds[style][digit];
+            Shape glyph = java.awt.geom.AffineTransform.getTranslateInstance(
+                    center.x-bounds.getCenterX(),center.y-bounds.getCenterY()).createTransformedShape(
+                            chainGlyph ? doodleCandidateGlyphLayout.chainGlyphs[digit]
+                                    : doodleCandidateGlyphLayout.glyphs[style][digit]);
+            java.awt.geom.Area protectedGlyph = new java.awt.geom.Area(glyph);
+            protectedGlyph.add(new java.awt.geom.Area(new BasicStroke(1f).createStrokedShape(glyph)));
+            ink.subtract(protectedGlyph);
+        }
     }
 
-    private void drawDoodleThoughtPreviewConflicts(Graphics2D graphics) {
-        DoodleThoughtPreviewProjection projection = doodleThoughtPreviewProjection;
-        if (projection == null || projection.conflicts.isEmpty()) return;
-        Graphics2D g = (Graphics2D) graphics.create();
-        try {
-            g.setComposite(AlphaComposite.SrcOver);
-            for (DoodleStroke mark : doodleStrokes) {
-                if (!mark.isStandardCandidateMark() || mark.getThoughtGroup() != projection.group
-                        || !projection.conflicts.contains(mark.getAnchorCell()*10+mark.getAnchorDigit())) continue;
-                // Preserve circle/cross geometry, width and orthogonal state cues.
-                // The preview copy uses a dedicated error red; original annotations never change.
-                DoodleStroke error = mark.copy();
-                error.setColor(new Color(255, 0, 0));
-                drawDoodleStroke(g, error, getWidth(), getHeight());
+    private void protectNeighborCandidateGlyphs(java.awt.geom.Area cue,DoodleStroke stroke) {
+        int cell=stroke.getAnchorCell(),digit=stroke.getAnchorDigit();
+        int latticeRow=Sudoku2.getRow(cell)*3+(digit-1)/3,latticeCol=Sudoku2.getCol(cell)*3+(digit-1)%3;
+        for(int dr=-1;dr<=1;dr++)for(int dc=-1;dc<=1;dc++) {
+            if(dr==0&&dc==0)continue;
+            int row=latticeRow+dr,col=latticeCol+dc;
+            if(row<0||row>=27||col<0||col>=27)continue;
+            int neighbor=(row/3)*9+col/3,value=(row%3)*3+col%3+1;
+            if(!isUserChainCandidateVisible(neighbor,value))continue;
+            Point2D.Double center=getCandKoord(neighbor,value,cellSize);
+            if(Options.getInstance().isShowColorKuAct()) {
+                double size=candidateHeight+1.5;
+                cue.subtract(new java.awt.geom.Area(new java.awt.geom.Ellipse2D.Double(
+                        center.x-size/2,center.y-size/2,size,size)));
+            } else if(doodleCandidateGlyphLayout!=null) for(int style=0;style<2;style++) {
+                java.awt.geom.Rectangle2D bounds=doodleCandidateGlyphLayout.bounds[style][value];
+                Shape glyph=java.awt.geom.AffineTransform.getTranslateInstance(
+                        center.x-bounds.getCenterX(),center.y-bounds.getCenterY())
+                        .createTransformedShape(doodleCandidateGlyphLayout.glyphs[style][value]);
+                java.awt.geom.Area protectedGlyph=new java.awt.geom.Area(glyph);
+                protectedGlyph.add(new java.awt.geom.Area(new BasicStroke(1.5f).createStrokedShape(glyph)));
+                cue.subtract(protectedGlyph);
             }
-        } finally { g.dispose(); }
+        }
+    }
+
+    private void drawDoodleConclusionOutline(Graphics2D graphics, DoodleStroke stroke, Shape path, float markWidth) {
+        float gap = doodleConclusionGapWidth(stroke);
+        if (gap > 0) {
+            SudokuAppearancePalette appearance = SudokuAppearancePalette.forRendering(false);
+            graphics.setColor(appearance.getAnnotationSeparator(DOODLE_CONCLUSION_OUTLINE_COLOR,
+                    candidateAnnotationBackground(stroke.getAnchorCell(), stroke.getAnchorDigit(), appearance)));
+            graphics.fill(doodleOuterRim(stroke, path, markWidth, 0, gap));
+            if (!stroke.isHypothesisStart())
+                graphics.fill(doodleOuterRim(stroke, path, markWidth, gap + doodleConclusionEdgeWidth(stroke), .35f));
+        }
+        graphics.setColor(DOODLE_CONCLUSION_OUTLINE_COLOR);
+        graphics.fill(doodleOuterRim(stroke, path, markWidth, gap, doodleConclusionEdgeWidth(stroke)));
     }
 
 	private boolean handleFreeChainMousePressed(MouseEvent event) {
@@ -4927,7 +6602,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		boxDragCurrent = event.getPoint();
 		boxDragRemoves = right || SudokuUtil.isDeletionModifierDown(event);
 		boxDragGroup = activeBoxReasoningGroup;
-		boxDragPreview = calculateBoxReasoningDragCells(boxDragCurrent);
+        capturePaletteDeletePointer();
+		boxDragging = false;
+		boxDragPreview = null;
 		noteAnnotationToolBoardAction(true);
 		repaint();
 		return true;
@@ -4939,7 +6616,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		}
 		boxDragCurrent = event.getPoint();
         if(boxRightInspect && boxDragStart.distance(boxDragCurrent)>=4)boxRightDragged=true;
-		boxDragPreview = calculateBoxReasoningDragCells(boxDragCurrent);
+        if(boxDragStart.distance(boxDragCurrent)>=4)boxDragging=true;
 		repaint();
 		return true;
 	}
@@ -4949,6 +6626,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			return annotationTool == AnnotationTool.BOX_SELECTION;
 		}
 		boxDragCurrent = event.getPoint();
+        if(boxDragStart.distance(boxDragCurrent)>=4)boxDragging=true;
 		SudokuSet affected = calculateBoxReasoningDragCells(boxDragCurrent);
         boolean changed = false;
         List<SudokuSet> after = copyBoxReasoningGroups(boxReasoningGroups);
@@ -4970,7 +6648,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             repaint();
             return true;
         } else if (boxDragRemoves) {
-            for (SudokuSet group : after) group.andNot(affected);
+            int deleteGroup = paletteDeleteGroup();
+            if (deleteGroup >= 0) after.get(deleteGroup).andNot(affected);
+            else for (SudokuSet group : after) group.andNot(affected);
         } else {
             after.get(boxDragGroup).or(affected);
         }
@@ -4991,7 +6671,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		if (boxDragStart == null || current == null) {
 			return result;
 		}
-		if (boxDragStart.distance(current) < 4.0) {
+		if (!boxDragging && boxDragStart.distance(current) < 4.0) {
 			int row = getRow(current);
 			int col = getCol(current);
 			if (isOnGrid(current) && Sudoku2.isValidIndex(row, col)) {
@@ -5005,9 +6685,13 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		double maxY = Math.max(boxDragStart.y, current.y);
 		for (int row = 0; row < Sudoku2.UNITS; row++) {
 			for (int col = 0; col < Sudoku2.UNITS; col++) {
-				double centerX = getX(row, col) + cellSize / 2;
-				double centerY = getY(row, col) + cellSize / 2;
-				if (centerX >= minX && centerX <= maxX && centerY >= minY && centerY <= maxY) {
+				double cellX = getX(row, col), cellY = getY(row, col);
+				double centerX = cellX + cellSize / 2.0;
+				double centerY = cellY + cellSize / 2.0;
+                double overlapWidth = Math.max(0.0, Math.min(maxX,cellX+cellSize)-Math.max(minX,cellX));
+                double overlapHeight = Math.max(0.0, Math.min(maxY,cellY+cellSize)-Math.max(minY,cellY));
+				if (centerX >= minX && centerX <= maxX && centerY >= minY && centerY <= maxY
+                        || overlapWidth*overlapHeight >= cellSize*(double)cellSize*0.5) {
 					result.add(Sudoku2.getIndex(row, col));
 				}
 			}
@@ -5028,6 +6712,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		boxDragStart = null;
 		boxDragCurrent = null;
 		boxDragPreview = null;
+		boxDragging = false;
 		boxDragRemoves = false;
 		boxDragGroup = 0;
 	}
@@ -5083,6 +6768,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	public void clearBoxReasoningWithUndo() {
+        if(annotationTool==AnnotationTool.BOX_SELECTION&&heldPaletteDeleteGroup()>=0) {clearHeldPaletteWithUndo();return;}
         flushMappedClick();cancelMappedActiveGesture();
 		clearBoxReasoningWithUndo(true);
 	}
@@ -5179,11 +6865,15 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
     private void clearChainRelationPreview() {
         optionPreviewHeld=middlePreviewHeld=spacePreviewHeld=false;
+        chainPreviewSingleHeld=false;
+        if (chainPreviewChooser != null) chainPreviewChooser.setVisible(false);
         clearBoxInspection();
         if (chainRelationPreviewHeld) { chainRelationPreviewHeld = false; repaint(); }
     }
 
     private boolean handleChainRelationPreviewKeyReleased(KeyEvent event) {
+        boolean single = event.getKeyCode() != KeyEvent.VK_META && event.isMetaDown();
+        if (chainPreviewSingleHeld != single) { chainPreviewSingleHeld = single; repaint(); }
         if(optionPreviewHeld&&!event.isAltDown()&&event.getKeyCode()!=KeyEvent.VK_ALT) {
             optionPreviewHeld=false;refreshHeldPreview();
         }
@@ -5193,70 +6883,292 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         return false;
     }
 
-    /** 0: unrelated, 1: weak only, 2: strong and weak. Never writes board state. */
-    int chainPreviewRelation(UserChainNode target) {
-        if (activeUserChain == null || activeUserChain.isClosed() || activeUserChain.getNodes().isEmpty()) return 0;
+    private UserChainNode chainRelationPreviewOrigin() {
+        if (replayReadOnly || activeUserChain == null || activeUserChain.isClosed()
+                || activeUserChain.getNodes().isEmpty()) return null;
+        UserChainNode origin = activeUserChain.getNodes().get(activeUserChain.getNodes().size() - 1);
+        if (!origin.validShape()) return null;
+        for (int atom : origin.atoms()) if (sudoku.getValue(atom / 10) != 0
+                || !sudoku.isCandidate(atom / 10, atom % 10)) return null;
+        return origin;
+    }
+
+    private boolean isChainPreviewTargetAvailable(UserChainNode target) {
+        if (target == null || !target.validShape() || activeUserChain == null) return false;
         List<UserChainNode> nodes = activeUserChain.getNodes();
-        UserChainNode origin = nodes.get(nodes.size() - 1);
-        for (int atom : target.atoms()) if (!isUserChainCandidateVisible(atom / 10, atom % 10)) return 0;
-        for (int i = 0; i < nodes.size(); i++) {
-            for (int atom : target.atoms()) if (nodes.get(i).contains(atom / 10, atom % 10)
-                    && !(i == 0 && nodes.size() >= 3 && target.key().equals(nodes.get(0).key()))) return 0;
+        for (int atom : target.atoms()) {
+            if (!sudoku.isCandidate(atom / 10, atom % 10)
+                    || !isUserChainCandidateVisible(atom / 10, atom % 10)) return false;
+            for (int i = 0; i < nodes.size(); i++) if (nodes.get(i).contains(atom / 10, atom % 10)
+                    && !(i == 0 && nodes.size() >= 3 && target.key().equals(nodes.get(0).key()))) return false;
         }
-        if (!UserChainValidator.weak(origin, target)) return 0;
-        boolean strong = !origin.grouped() && !target.grouped()
-                ? UserChainValidator.strong(sudoku, origin.atoms()[0], target.atoms()[0])
-                : UserChainValidator.ordinaryStrong(sudoku, origin, target);
-        return strong ? 2 : 1;
+        return true;
+    }
+
+    private Set<String> chainPreviewBasisKeys(UserChainNode origin, Map<String,UserChainNode> targets) {
+        Set<String> keys = new HashSet<String>();
+        for (UserChainNode target : ChainPreviewBasis.strongTargets(sudoku, origin, activeDoodleMarks(), boxReasoningGroups)) {
+            keys.add(target.key());
+            if (targets != null) targets.put(target.key(), target);
+        }
+        return keys;
+    }
+
+    private Set<String> chainPreviewWeakBasisKeys(UserChainNode origin, Map<String,UserChainNode> targets) {
+        Set<String> keys = new HashSet<String>();
+        for (UserChainNode target : ChainPreviewBasis.weakTargets(sudoku, origin, activeDoodleMarks())) {
+            keys.add(target.key());
+            if (targets != null) targets.put(target.key(), target);
+        }
+        for (UserChainNode target : derivedDoodleAnalysis(false).weakTargets(origin)) {
+            keys.add(target.key());
+            if (targets != null) targets.put(target.key(), target);
+        }
+        return keys;
+    }
+
+    /** 0: none, 1: weak only, 2: both, 3: strong only. No board or source writes. */
+    int chainPreviewRelation(UserChainNode target) {
+        UserChainNode origin = chainRelationPreviewOrigin();
+        if (origin == null || !isChainPreviewTargetAvailable(target)) return 0;
+        Set<Integer> ordinarySingles = origin.grouped()
+                ? UserChainValidator.ordinaryStrongSingleTargets(sudoku, origin) : Collections.<Integer>emptySet();
+        return chainPreviewRelation(origin, target, chainPreviewBasisKeys(origin, null),
+                chainPreviewWeakBasisKeys(origin, null), ordinarySingles);
+    }
+
+    private int chainPreviewRelation(UserChainNode origin, UserChainNode target,
+            Set<String> basisKeys, Set<String> weakBasisKeys, Set<Integer> ordinarySingles) {
+        boolean nativeWeak = UserChainValidator.weak(origin, target);
+        boolean weak = nativeWeak || weakBasisKeys.contains(target.key());
+        // Ordinary cell/house links must act on every member of both OR nodes.
+        // Broad coverage may prove A OR B using just one cell of A; that does
+        // not make B an ordinary whole-group endpoint. Independent strong P/ALS
+        // evidence bypasses this native gate; derived weak evidence must not
+        // promote partial-cell coverage to an ordinary strong relation.
+        boolean ordinary = nativeWeak && (target.grouped() ? UserChainValidator.ordinaryStrong(sudoku, origin, target)
+                : origin.grouped() ? ordinarySingles.contains(target.atoms()[0])
+                : UserChainValidator.strong(sudoku, origin.atoms()[0], target.atoms()[0]));
+        boolean strong = basisKeys.contains(target.key()) || ordinary;
+        return strong ? (weak ? 2 : 3) : (weak ? 1 : 0);
+    }
+
+    private static final class ChainPreviewTarget {
+        final UserChainNode node;
+        final int relation;
+        ChainPreviewTarget(UserChainNode node, int relation) { this.node = node; this.relation = relation; }
+    }
+
+    private List<ChainPreviewTarget> collectChainPreviewTargets() {
+        List<ChainPreviewTarget> result = new ArrayList<ChainPreviewTarget>();
+        UserChainNode origin = chainRelationPreviewOrigin();
+        if (origin == null) return result;
+        Map<String,UserChainNode> nodes = new java.util.LinkedHashMap<String,UserChainNode>();
+        for (int cell = 0; cell < 81; cell++) for (int digit = 1; digit <= 9; digit++) {
+            if (!sudoku.isCandidate(cell, digit)) continue;
+            UserChainNode target = new UserChainNode(cell, digit, Color.ORANGE);
+            nodes.put(target.key(), target);
+        }
+        for (UserChain chain : currentReasoningChains()) for (UserChainNode target : chain.getNodes())
+            if (target.grouped()) nodes.put(target.key(), target);
+        Set<String> basisKeys = chainPreviewBasisKeys(origin, nodes);
+        Set<String> weakBasisKeys = chainPreviewWeakBasisKeys(origin, nodes);
+        Set<Integer> ordinarySingles = origin.grouped()
+                ? UserChainValidator.ordinaryStrongSingleTargets(sudoku, origin) : Collections.<Integer>emptySet();
+        for (UserChainNode target : nodes.values()) if (isChainPreviewTargetAvailable(target)) {
+            int relation = chainPreviewRelation(origin, target, basisKeys, weakBasisKeys, ordinarySingles);
+            if (relation != 0) result.add(new ChainPreviewTarget(target, relation));
+        }
+        return result;
+    }
+
+    List<UserChainNode> chainPreviewTargets() {
+        List<UserChainNode> result = new ArrayList<UserChainNode>();
+        for (ChainPreviewTarget target : collectChainPreviewTargets()) result.add(target.node.copy());
+        return result;
+    }
+
+    private boolean canConnectChainPreview(int relation) {
+        return relation == 2 || (nextUserChainStrong ? relation == 3 : relation == 1);
+    }
+
+    private boolean appendChainPreviewTarget(MouseEvent event, UserChainNode target) {
+        if (!chainRelationPreviewHeld || annotationTool != AnnotationTool.FREE_CHAIN || replayReadOnly) return true;
+        int relation = chainPreviewRelation(target);
+        if (relation == 0 && !event.isMetaDown() && !target.grouped()) return true;
+        if (!canConnectChainPreview(relation)) { Toolkit.getDefaultToolkit().beep(); return true; }
+        // Meta has already selected the intended proposition; Alt/Shift must not
+        // invoke a new-chain start or expand a group after the preview gate.
+        MouseEvent plain = new MouseEvent(this, event.getID(), event.getWhen(), 0,
+                event.getX(), event.getY(), event.getClickCount(), false, MouseEvent.BUTTON1);
+        return appendResolvedChainNode(plain, target.copy());
+    }
+
+    private void showChainPreviewChooser(MouseEvent event, List<UserChainNode> groups) {
+        if (chainPreviewChooser != null) chainPreviewChooser.setVisible(false);
+        javax.swing.JPopupMenu chooser = new javax.swing.JPopupMenu() {
+            @Override public void menuSelectionChanged(boolean included) {
+                // With middle still held, native capture can deliver a left press
+                // to Popup's window instead of its item. Keep this chooser until
+                // the scoped pointer handler below resolves that explicit click.
+                java.awt.AWTEvent current = java.awt.EventQueue.getCurrentEvent();
+                if (!included && chainPreviewChooser == this && middlePreviewHeld && chainRelationPreviewHeld
+                        && current instanceof MouseEvent) {
+                    MouseEvent mouse = (MouseEvent)current;
+                    if (mouse.getID() == MouseEvent.MOUSE_PRESSED && SwingUtilities.isLeftMouseButton(mouse)
+                            && (mouse.getModifiersEx() & MouseEvent.BUTTON2_DOWN_MASK) != 0 && isShowing()) {
+                        Point at = getLocationOnScreen();
+                        if (new Rectangle(at.x, at.y, getWidth(), getHeight()).contains(mouse.getLocationOnScreen())) return;
+                    }
+                }
+                super.menuSelectionChanged(included);
+            }
+        };
+        chainPreviewChooser = chooser;
+        final String originKey = chainRelationPreviewOrigin().key();
+        final boolean selectedStrong = nextUserChainStrong;
+        for (UserChainNode group : groups) {
+            final UserChainNode target = group.copy();
+            String text = ChainTextCodec.node(target);
+            javax.swing.JMenuItem item = new javax.swing.JMenuItem(text.length() > 72
+                    ? text.substring(0,68) + "… (" + target.atoms().length + ")" : text);
+            item.setToolTipText(text);
+            item.addChangeListener(e -> { if (item.isArmed()) { chainEndpointPreview = target; repaint(); } });
+            item.addActionListener(e -> {
+                chooser.setVisible(false);
+                chainEndpointPreview = null;
+                UserChainNode origin = chainRelationPreviewOrigin();
+                if (origin == null || !origin.key().equals(originKey) || nextUserChainStrong != selectedStrong) {
+                    Toolkit.getDefaultToolkit().beep(); repaint(); return;
+                }
+                appendChainPreviewTarget(event, target);
+            });
+            chooser.add(item);
+        }
+        final javax.swing.JMenuItem[] pressed = new javax.swing.JMenuItem[1];
+        final java.awt.event.AWTEventListener heldPointer = e -> {
+            if (!(e instanceof MouseEvent) || !middlePreviewHeld || !chainRelationPreviewHeld
+                    || chainPreviewChooser != chooser || !chooser.isShowing()) return;
+            MouseEvent mouse = (MouseEvent)e;
+            java.awt.Component source = mouse.getComponent();
+            java.awt.Window window = source instanceof java.awt.Window ? (java.awt.Window)source
+                    : source == null ? null : SwingUtilities.getWindowAncestor(source);
+            java.awt.Window popupWindow = SwingUtilities.getWindowAncestor(chooser);
+            if (window != mainFrame && window != popupWindow) return;
+            if (mouse.getID() == MouseEvent.MOUSE_RELEASED && SwingUtilities.isMiddleMouseButton(mouse)) {
+                middlePreviewHeld = false; refreshHeldPreview(); chooser.setVisible(false); return;
+            }
+            if (source instanceof javax.swing.JMenuItem && SwingUtilities.isDescendingFrom(source, chooser)) return;
+            if (!SwingUtilities.isLeftMouseButton(mouse)
+                    || (mouse.getID() != MouseEvent.MOUSE_PRESSED && mouse.getID() != MouseEvent.MOUSE_RELEASED)) return;
+            javax.swing.JMenuItem hit = null;
+            Point screen = mouse.getLocationOnScreen();
+            for (java.awt.Component component : chooser.getComponents()) if (component instanceof javax.swing.JMenuItem) {
+                Point at = component.getLocationOnScreen();
+                if (new Rectangle(at.x, at.y, component.getWidth(), component.getHeight()).contains(screen)) {
+                    hit = (javax.swing.JMenuItem)component; break;
+                }
+            }
+            if (mouse.getID() == MouseEvent.MOUSE_PRESSED) {
+                pressed[0] = hit;
+                if (hit == null) chooser.setVisible(false);
+            } else {
+                javax.swing.JMenuItem selected = pressed[0]; pressed[0] = null;
+                if (selected != null && selected == hit && selected.isEnabled()) {
+                    chooser.setVisible(false); selected.doClick(0);
+                }
+            }
+            mouse.consume();
+        };
+        chooser.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) { }
+            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {
+                Toolkit.getDefaultToolkit().removeAWTEventListener(heldPointer);
+                if (chainPreviewChooser == chooser) chainPreviewChooser = null;
+                chainEndpointPreview = null; repaint();
+            }
+            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) { chainEndpointPreview = null; repaint(); }
+        });
+        chooser.show(this, event.getX(), event.getY());
+        if (middlePreviewHeld && chainPreviewChooser == chooser && chooser.isShowing())
+            Toolkit.getDefaultToolkit().addAWTEventListener(heldPointer, java.awt.AWTEvent.MOUSE_EVENT_MASK);
     }
 
     private boolean handleChainRelationPreviewClick(MouseEvent event) {
+        if (event.isConsumed()) return true;
         if (!SwingUtilities.isLeftMouseButton(event)) return false;
         noteAnnotationToolBoardAction(true);
         int row = getRow(event.getPoint()), col = getCol(event.getPoint());
         if (!Sudoku2.isValidIndex(row, col)) return true;
-        int digit = getCandidate(event.getPoint(), row, col);
-        if (digit < 1) return true;
-        UserChainNode target = new UserChainNode(Sudoku2.getIndex(row, col), digit,
-                Options.getInstance().getColoringColors()[cellZoomPanel.getPaletteGroup() * 2]);
-        int relation = chainPreviewRelation(target);
-        if (relation == 0) return true;
-        if (relation == 1 && nextUserChainStrong) {
-            java.awt.Toolkit.getDefaultToolkit().beep(); return true;
+        int digit = getCandidate(event.getPoint(), row, col), cell = Sudoku2.getIndex(row, col);
+        if (digit < 1 || !isUserChainCandidateVisible(cell, digit)) return true;
+        if (!event.isMetaDown()) {
+            List<UserChainNode> groups = new ArrayList<UserChainNode>();
+            boolean groupedHit = false;
+            for (ChainPreviewTarget target : collectChainPreviewTargets())
+                if (target.node.grouped() && target.node.contains(cell, digit)) {
+                    groupedHit = true;
+                    if (canConnectChainPreview(target.relation)) groups.add(target.node);
+                }
+            if (groupedHit) {
+                if (groups.isEmpty()) Toolkit.getDefaultToolkit().beep();
+                else if (groups.size() == 1) appendChainPreviewTarget(event, groups.get(0));
+                else showChainPreviewChooser(event, groups);
+                return true;
+            }
         }
-        // Preview clicks append exactly the marked candidate; modifier gestures must
-        // not bypass the relation gate or unexpectedly start a separate chain.
-        MouseEvent plain = new MouseEvent(this, event.getID(), event.getWhen(), 0,
-                event.getX(), event.getY(), event.getClickCount(), false, MouseEvent.BUTTON1);
-        return appendResolvedChainNode(plain, target);
+        UserChainNode target = new UserChainNode(cell, digit,
+                Options.getInstance().getColoringColors()[cellZoomPanel.getPaletteGroup() * 2]);
+        // A standalone singleton and a deliberate Meta singleton both require their
+        // own relation. Never fall back to a group when Meta selected a candidate.
+        return appendChainPreviewTarget(event, target);
     }
 
     private Color chainPreviewColor(SudokuAppearancePalette appearance, int relation) {
-        if (relation == 1 && nextUserChainStrong)
+        if (!canConnectChainPreview(relation))
             return appearance.isDark() ? new Color(222, 139, 145) : new Color(184, 103, 110);
-        return relation == 2 ? (appearance.isDark() ? new Color(90, 220, 160) : new Color(0, 132, 85))
-                : (appearance.isDark() ? new Color(255, 190, 90) : new Color(160, 85, 0));
+        return relation == 1 ? (appearance.isDark() ? new Color(255, 190, 90) : new Color(160, 85, 0))
+                : (appearance.isDark() ? new Color(90, 220, 160) : new Color(0, 132, 85));
     }
 
     private void drawChainRelationPreview(Graphics2D g, SudokuAppearancePalette appearance, double diameter) {
         if (!chainRelationPreviewHeld) return;
         double radius = Math.max(5, diameter / 2) + 2;
-        for (int cell = 0; cell < 81; cell++) for (int digit = 1; digit <= 9; digit++) {
-            UserChainNode target = new UserChainNode(cell, digit, Color.ORANGE);
-            int relation = chainPreviewRelation(target);
-            if (relation == 0) continue;
-            Point2D.Double center = getCandKoord(cell, digit, cellSize);
-            boolean hover = lastMousePosition != null && center.distance(lastMousePosition) <= radius;
-            java.awt.Shape ring = new java.awt.geom.Ellipse2D.Double(center.x-radius, center.y-radius, radius*2, radius*2);
-            Color tone = chainPreviewColor(appearance, relation);
-            g.setColor(new Color(tone.getRed(), tone.getGreen(), tone.getBlue(), hover ? 100 : 35)); g.fill(ring);
-            g.setColor(tone);
-            g.setStroke(relation == 1 && nextUserChainStrong
-                    ? new BasicStroke(hover ? 2.0f : 1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
-                            10f, new float[]{4f, 3f, 1f, 3f}, 0f)
-                    : relation == 2 ? new BasicStroke(hover ? 2.8f : 1.8f)
-                    : new BasicStroke(hover ? 2.5f : 1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 10f, new float[]{2f, 3f}, 0f));
-            g.draw(ring);
+        List<ChainPreviewTarget> targets = collectChainPreviewTargets();
+        Set<Integer> groupedMembers = new HashSet<Integer>();
+        for (ChainPreviewTarget target : targets) if (target.node.grouped())
+            for (int atom : target.node.atoms()) groupedMembers.add(atom);
+        for (ChainPreviewTarget target : targets) {
+            if (chainPreviewSingleHeld && target.node.grouped()) continue;
+            if (!chainPreviewSingleHeld && !target.node.grouped()
+                    && groupedMembers.contains(target.node.atoms()[0])) continue;
+            boolean hover = false;
+            for (int atom : target.node.atoms()) {
+                Point2D.Double center = getCandKoord(atom / 10, atom % 10, cellSize);
+                hover |= lastMousePosition != null && center.distance(lastMousePosition) <= radius;
+            }
+            Color tone = chainPreviewColor(appearance, target.relation);
+            if (target.node.grouped()) {
+                Graphics2D band = (Graphics2D) g.create();
+                try {
+                    band.setComposite(AlphaComposite.SrcOver.derive(hover ? 0.22f : 0.12f));
+                    UserChainNode grouped = target.node.copy(); grouped.setColor(tone);
+                    drawChainGroupBand(band, grouped, diameter, appearance);
+                } finally { band.dispose(); }
+            }
+            for (int atom : target.node.atoms()) {
+                Point2D.Double center = getCandKoord(atom / 10, atom % 10, cellSize);
+                Shape ring = new java.awt.geom.Ellipse2D.Double(center.x-radius, center.y-radius, radius*2, radius*2);
+                g.setColor(new Color(tone.getRed(), tone.getGreen(), tone.getBlue(), hover ? 100 : 35)); g.fill(ring);
+                g.setColor(tone);
+                g.setStroke(!canConnectChainPreview(target.relation)
+                        ? new BasicStroke(hover ? 2.0f : 1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                                10f, new float[]{4f, 3f, 1f, 3f}, 0f)
+                        : target.relation != 1 ? new BasicStroke(hover ? 2.8f : 1.8f)
+                        : new BasicStroke(hover ? 2.5f : 1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+                                10f, new float[]{2f, 3f}, 0f));
+                g.draw(ring);
+            }
         }
     }
 
@@ -5402,14 +7314,41 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		return completed;
 	}
 
+    private void removeLastPaletteChainConnection() {
+        List<UserChain> all=new ArrayList<UserChain>(userChains);
+        if(activeUserChain!=null)all.add(activeUserChain);
+        for(int i=all.size()-1;i>=0;i--) {
+            UserChain chain=all.get(i);
+            for(int edge=chain.getStrongRelations().size()-1;edge>=0;edge--)
+                if(matchesPaletteDeleteColor(paletteChainEdgeColor(chain,edge))) {
+                    if(edge==chain.getStrongRelations().size()-1&&(chain.isClosed()
+                            ||matchesPaletteDeleteColor(chain.getNodes().get(chain.getNodes().size()-1).getColor()))) {
+                        backtrackUserChain(chain);return;
+                    }
+                    Map<UserChain,Set<Integer>> targets=new java.util.IdentityHashMap<>();
+                    targets.put(chain,java.util.Collections.singleton(edge));deleteExactChainEdges(targets);return;
+                }
+            if(chain.getNodes().size()==1&&matchesPaletteDeleteColor(chain.getNodes().get(0).getColor())) {
+                pushUserChainUndo();userChains.remove(chain);if(activeUserChain==chain)activeUserChain=null;
+                synchronizeNextChainEdge();noteUserChainReasoningChanged();mainFrame.check();repaint();return;
+            }
+        }
+    }
+
 	private void removeLastUserChainNode() {
+        if(paletteDeleteGroup()>=0) { removeLastPaletteChainConnection();return; }
         UserChain chain = activeUserChain;
         if (chain == null && !userChains.isEmpty()) chain = userChains.get(userChains.size() - 1);
         if (chain == null || chain.getNodes().isEmpty()) return;
+        backtrackUserChain(chain);
+    }
+
+    private void backtrackUserChain(UserChain chain) {
         // Tail backtracking keeps a drawing cursor, unlike arbitrary edge cuts.
         // Capture the completed state before reopening so undo restores it exactly.
         pushUserChainUndo();
-        if (activeUserChain == null) {
+        if (activeUserChain != chain) {
+            if(activeUserChain!=null)finishActiveUserChain(activeUserChain.isClosed(),false,true);
             userChains.remove(chain);
             activeUserChain = chain;
             chain.setActive(true);
@@ -5588,6 +7527,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	}
 
 	public void clearUserChainsWithUndo() {
+        if(annotationTool==AnnotationTool.FREE_CHAIN&&heldPaletteDeleteGroup()>=0) {clearHeldPaletteWithUndo();return;}
         flushMappedClick();cancelMappedActiveGesture();
 		clearUserChainsWithUndo(true);
 	}
@@ -5611,6 +7551,10 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	private void drawUserChains(Graphics2D graphics, SudokuAppearancePalette appearance,
 			double candidateDiameter) {
+        drawUserChains(graphics,appearance,candidateDiameter,true);
+    }
+    private void drawUserChains(Graphics2D graphics, SudokuAppearancePalette appearance,
+            double candidateDiameter, boolean includeNodes) {
 		if (!userChainsVisible || (userChains.isEmpty() && activeUserChain == null)) {
 			return;
 		}
@@ -5619,7 +7563,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			if (step != null) {
 				copy.setComposite(AlphaComposite.SrcOver.derive(annotationOpacity()));
 			}
-			drawUserChainGroupBands(copy, appearance, candidateDiameter);
+            double displayDiameter = candidateNodeMaxDiameter(candidateDiameter, true);
+			drawUserChainGroupBands(copy, appearance, displayDiameter);
             List<UserChainSegment> segments = collectUserChainSegments();
 			List<Point2D.Double> obstacles = collectUserChainObstacles();
 			Map<String, Integer> segmentCounts = new TreeMap<String, Integer>();
@@ -5630,8 +7575,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			}
 			Map<String, Integer> segmentOrdinals = new TreeMap<String, Integer>();
 			double laneSpacing = Math.min(Math.max(2.0, cellSize / 28.0), cellSize / 10.0);
-			double routeDiameter = candidateDiameter > 0.0
-					? candidateDiameter : Math.max(1.0, candidateHeight);
+			double routeDiameter = displayDiameter;
 			for (UserChainSegment segment : segments) {
 				String key = userChainSegmentKey(segment.from, segment.to);
 				Integer ordinalValue = segmentOrdinals.get(key);
@@ -5642,7 +7586,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 						ordinal, count, laneSpacing, routeDiameter);
 				drawUserChainSegment(copy, segment, appearance, routeDiameter, obstacles, laneOffset);
 			}
-			drawUserChainNodes(copy, appearance, routeDiameter);
+			if (includeNodes) drawUserChainNodes(copy, appearance, candidateDiameter);
 
 		} finally {
 			copy.dispose();
@@ -5764,6 +7708,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         if(!valid && (step==null || reasoningProposal!=null && reasoningProposal.authoredChainProof)) graphics.setComposite(AlphaComposite.SrcOver);
         Color color = valid ? appearance.getUserChainNodeColor(semanticColor, appearance.getDefaultCellColor())
 				: appearance.getUserChainInvalidColor();
+        if (valid && !isAuthoredChainPreview())
+            graphics.setComposite(AlphaComposite.SrcOver.derive(annotationOpacityFor(AnnotationTool.FREE_CHAIN,semanticColor)));
 		float width = Math.max(1.8f, cellSize / 30.0f);
 		double visibleLength = route.getStart().distance(route.getEnd());
         if(!valid){
@@ -5780,48 +7726,99 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	private void drawUserChainNodes(Graphics2D graphics, SudokuAppearancePalette appearance,
 			double candidateDiameter) {
+        drawUserChainNodes(graphics,appearance,candidateDiameter,false);
+    }
+
+    private void drawUserChainNodes(Graphics2D graphics, SudokuAppearancePalette appearance,
+            double candidateDiameter, boolean nativeSources) {
+        Map<Integer,Map<Integer,UserChainNode>> sources = new TreeMap<Integer,Map<Integer,UserChainNode>>();
 		for (UserChain chain : userChains) {
 			if (!isUserChainReplacedByReasoningProposal(chain)) {
-				drawUserChainNodes(graphics, chain, appearance, candidateDiameter);
+				collectCandidateNodeSources(chain,sources);
 			}
 		}
 		if (activeUserChain != null && !isUserChainReplacedByReasoningProposal(activeUserChain)) {
-			drawUserChainNodes(graphics, activeUserChain, appearance, candidateDiameter);
+			collectCandidateNodeSources(activeUserChain,sources);
 		}
+        for (Map.Entry<Integer,Map<Integer,UserChainNode>> entry : sources.entrySet()) {
+            boolean nativeMarker=step!=null && nativeCandidateMarkerSizes[entry.getKey()]>0;
+            if (nativeMarker != nativeSources) continue;
+            drawCandidateNodeSources(graphics,appearance,candidateDiameter,entry.getKey(),entry.getValue(),nativeSources);
+        }
 	}
 
-	private void drawUserChainNodes(Graphics2D graphics, UserChain chain,
-			SudokuAppearancePalette appearance, double candidateDiameter) {
-		Font oldFont = graphics.getFont();
-		Font nodeFont = candidateFont.deriveFont(Font.BOLD);
-		graphics.setFont(nodeFont);
-		FontMetrics metrics = graphics.getFontMetrics(nodeFont);
-		List<UserChainNode> nodes = chain.getNodes();
-		for (int i = 0; i < nodes.size(); i++) {
-			UserChainNode node = nodes.get(i);
-			if (!isUserChainNodeVisible(node) || !paintAnnotation(chainNodeTimeKey(node))) {
-				continue;
-			}
-			for(int member:node.atoms()) {
-            Point2D.Double point = getCandKoord(member/10, member%10, cellSize);
-			double effectiveDiameter = candidateDiameter > 0.0
-					? candidateDiameter : Math.max(10.0, cellSize / 5.0);
-			int diameter = userChainNodeDiameter(effectiveDiameter, cellSize);
-			Color background = Sudoku2.getBlock(member/10) % 2 == 0
-					? appearance.getDefaultCellColor() : appearance.getAlternateCellColor();
-			Color color = appearance.getUserChainNodeColor(userChainNodeColor(node), background);
-			graphics.setColor(color);
-			graphics.fillOval((int) Math.round(point.x - effectiveDiameter / 2.0),
-					(int) Math.round(point.y - effectiveDiameter / 2.0), diameter, diameter);
-			String glyph = Integer.toString(member%10);
-			graphics.setColor(Color.WHITE);
-			graphics.drawString(glyph,
-					(int) Math.round(point.x - metrics.stringWidth(glyph) / 2.0),
-					(int) Math.round(point.y + (metrics.getAscent() - metrics.getDescent()) / 2.0));
-		}
+    private void collectCandidateNodeSources(UserChain chain, Map<Integer,Map<Integer,UserChainNode>> sources) {
+        for (UserChainNode node : chain.getNodes()) if (isUserChainNodeVisible(node)) {
+            int color = userChainNodeColor(node).getRGB();
+            for (int atom : node.atoms()) {
+                Map<Integer,UserChainNode> colors = sources.get(atom);
+                if (colors == null) { colors = new TreeMap<Integer,UserChainNode>(); sources.put(atom,colors); }
+                if (!colors.containsKey(color) || isForegroundAnnotation(chainNodeTimeKey(node))) colors.put(color,node);
+            }
         }
-		graphics.setFont(oldFont);
-	}
+    }
+    private double candidateNodeMaxDiameter(double original, boolean bold) {
+        double diameter = 0;
+        for (int digit=1;digit<=9;digit++) diameter = Math.max(diameter,candidateNodeDisplayDiameter(0,digit,original,bold));
+        return diameter;
+    }
+    private void drawCandidateNodeSources(Graphics2D graphics, SudokuAppearancePalette appearance,
+            double original, int atom, Map<Integer,UserChainNode> sources, boolean nativeSources) {
+        boolean paints = nativeSources;
+        for (UserChainNode node : sources.values()) if (paintAnnotation(chainNodeTimeKey(node))) { paints=true;break; }
+        if (!paints) return;
+        int cell=atom/10,digit=atom%10;
+        Point2D.Double center = getCandKoord(cell,digit,cellSize);
+        double nativeSize = nativeCandidateMarkerSizes[atom];
+        double diameter = nativeSize > 0 ? nativeSize+4 : candidateNodeDisplayDiameter(cell,digit,original,true);
+        Color background = candidateAnnotationBackground(cell,digit,appearance);
+        Graphics2D g = (Graphics2D)graphics.create();
+        try {
+            float rimWidth = Math.max(1.2f,Math.min(1.8f,cellSize/65f));
+            double angle=360.0/sources.size(); int index=0;
+            for (UserChainNode node : sources.values()) {
+                int sector=index++;
+                if (!nativeSources && !paintAnnotation(chainNodeTimeKey(node))) continue;
+                Color source=userChainNodeColor(node);
+                float focus=isAuthoredChainPreview()?1f:annotationFocusOpacity(AnnotationTool.FREE_CHAIN,source);
+                // A hint owns the center; its older chain sources still need legible rims.
+                // Keep time order visible without applying the old 12% context fade twice.
+                float opacity = nativeSize > 0 ? Math.min(focus,
+                        isForegroundAnnotation(chainNodeTimeKey(node)) ? 1f : .60f) : annotationOpacity();
+                g.setComposite(AlphaComposite.SrcOver.derive(opacity));
+                Color toned=blendAnnotationColor(source,appearance.getDefaultCellColor(),focus);
+                Color fill=appearance.getUserChainNodeFillColor(toned);
+                Shape part=new java.awt.geom.Arc2D.Double(center.x-diameter/2,center.y-diameter/2,diameter,diameter,
+                        90-sector*angle,-angle,nativeSize>0?java.awt.geom.Arc2D.OPEN:java.awt.geom.Arc2D.PIE);
+                if (nativeSize>0) {
+                    // Dark native hints have rounded-square corners. Follow their actual
+                    // perimeter so an enclosing circle cannot paint through those corners.
+                    Shape rim = appearance.isDark() && !isAuthoredChainPreview()
+                            ? new java.awt.geom.RoundRectangle2D.Double(center.x-diameter/2,center.y-diameter/2,
+                                    diameter,diameter,Math.max(2,nativeSize/3)+4,Math.max(2,nativeSize/3)+4)
+                            : new java.awt.geom.Ellipse2D.Double(center.x-diameter/2,center.y-diameter/2,diameter,diameter);
+                    Shape priorClip=g.getClip();
+                    g.clip(new java.awt.geom.Arc2D.Double(center.x-diameter,center.y-diameter,
+                            diameter*2,diameter*2,90-sector*angle,-angle,java.awt.geom.Arc2D.PIE));
+                    g.setStroke(new BasicStroke(rimWidth+1.2f));
+                    g.setColor(appearance.getAnnotationSeparator(source,background));g.draw(rim);
+                    g.setStroke(new BasicStroke(rimWidth));g.setColor(appearance.getAnnotationStrokeColor(source,background));g.draw(rim);
+                    g.setClip(priorClip);
+                } else { g.setColor(fill);g.fill(part); }
+            }
+            if (nativeSize==0) {
+                Shape edge=new java.awt.geom.Ellipse2D.Double(center.x-diameter/2,center.y-diameter/2,diameter,diameter);
+                g.setStroke(new BasicStroke(Math.max(.7f,Math.min(1f,cellSize/120f))));
+                g.setColor(appearance.getAnnotationSeparator(userChainNodeColor(sources.values().iterator().next()),background));
+                g.draw(edge);
+                float glyphAlpha = annotationDoodleFrame != null && fadeCurrentDoodleCross(cell,digit,annotationDoodleFrame) ? .45f : 1f;
+                g.setComposite(AlphaComposite.SrcOver.derive(Math.min(annotationOpacity(),glyphAlpha)));
+                g.setColor(Color.WHITE);drawCenteredChainGlyph(g,digit,center);
+                annotationCandidateBackgrounds[atom] = appearance.getUserChainNodeFillColor(
+                        userChainNodeColor(sources.values().iterator().next()));
+            }
+        } finally { g.dispose(); }
+    }
 
 	static int userChainNodeDiameter(double candidateDiameter, int cellSize) {
 		return candidateDiameter > 0.0
@@ -6633,7 +8630,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
             finishDoodleHypothesisEntry();
             doodleHypothesisConsumedMask = state.getDoodleHypothesisConsumedMask();
             // Legacy populated colors are records, never newly inferred hypotheses.
-            for (DoodleStroke mark : doodleStrokes) if (mark.isStandardCandidateMark() && mark.getThoughtGroup() >= 0)
+            for (DoodleStroke mark : activeDoodleMarks()) if (mark.isStandardCandidateMark() && mark.getThoughtGroup() >= 0)
                 doodleHypothesisConsumedMask |= 1 << mark.getThoughtGroup();
             doodleHypothesisUndoMasks.clear(); doodleHypothesisRedoMasks.clear();
             if (state.getDoodleHypothesisUndoMasks() != null) doodleHypothesisUndoMasks.addAll(state.getDoodleHypothesisUndoMasks());
@@ -7759,6 +9756,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	/** Clears user coloring as one undoable action, without changing Sudoku data. */
 	public void clearColoringWithUndo() {
+        if(isColoringTool(annotationTool)&&heldPaletteDeleteGroup()>=0) {clearHeldPaletteWithUndo();return;}
         flushMappedClick();cancelMappedActiveGesture();
 		clearColoringWithUndo(true);
 	}
@@ -8268,6 +10266,35 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 		g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 		SudokuAppearancePalette appearance = SudokuAppearancePalette.forRendering(isPrint);
         refreshAnnotationTimeline();refreshPreviewFocus();annotationPaintLayer=0;
+        if (includeAnnotations) reconcileDoodleComposition();
+        if (!isPrint) lastDisplayedDoodleRefutationGroup = includeAnnotations && annotationTool == AnnotationTool.DOODLE
+                && !replayReadOnly && displayedDoodleContradiction().hasRefutation() ? cellZoomPanel.getPaletteGroup() : -1;
+        if (!isPrint) lastDisplayedDoodleConsensusGroup = includeAnnotations && annotationTool == AnnotationTool.DOODLE
+                && !replayReadOnly && !displayedDoodleContradiction().hasRefutation() && displayedDoodleConsensus().hasConclusions()
+                ? cellZoomPanel.getPaletteGroup() : -1;
+        if (!isPrint) lastDisplayedDoodleCompletionGroup = includeAnnotations && annotationTool == AnnotationTool.DOODLE
+                && !replayReadOnly && !displayedDoodleContradiction().hasRefutation() && displayedDoodleCompletion().complete()
+                ? cellZoomPanel.getPaletteGroup() : -1;
+        doodleDisplayProtectedCandidates.clear();
+        if (includeAnnotations && replayReadOnly) {
+            for (DoodleStroke mark : doodleStrokes) if (mark.isContradictionWitness() || mark.isRefutationResult())
+                doodleDisplayProtectedCandidates.add(mark.getAnchorCell() * 10 + mark.getAnchorDigit());
+        } else if (includeAnnotations && annotationTool == AnnotationTool.DOODLE) {
+            DoodleContradictionBasis.Analysis contradiction = displayedDoodleContradiction();
+            doodleDisplayProtectedCandidates.addAll(contradiction.conflictAtoms());
+            if (contradiction.hasRefutation()) doodleDisplayProtectedCandidates.addAll(contradiction.starts);
+            else {
+                doodleDisplayProtectedCandidates.addAll(displayedDoodleConsensus().protectedAtoms());
+                doodleDisplayProtectedCandidates.addAll(displayedDoodleCompletion().fills);
+            }
+        }
+        List<DoodleStroke> visibleDoodles = includeAnnotations ? visibleDoodleInk(
+                doodleErasePreview != null ? doodleErasePreview : doodleStrokes, currentDoodleSources()) : null;
+        DoodleFrameIndex doodleFrame = includeAnnotations ? new DoodleFrameIndex(visibleDoodles, visibleDoodles) : null;
+        annotationDoodleFrame = doodleFrame;
+        Arrays.fill(annotationCellBackgrounds, null);
+        Arrays.fill(annotationCandidateBackgrounds, null);
+        Arrays.fill(nativeCandidateMarkerSizes, 0);
 		boolean authoredPreview = isAuthoredChainPreview();
 		boolean renderGeneratedStep = step != null && !authoredPreview && (!isPrint || reasoningProposal == null);
 		doodleThoughtPreviewProjection = !isPrint && includeAnnotations
@@ -8342,6 +10369,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				resetColorKuImages();
 			}
 		}
+
+        boolean alignDoodleGlyphs = !Options.getInstance().isShowColorKuAct();
+        if (alignDoodleGlyphs) prepareDoodleCandidateGlyphLayout(g2);
 
 		// draw the cells
 		// dx, dy: Offset in a cell for drawing values
@@ -8435,14 +10465,13 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 						&& filterMatch && !Options.getInstance().isOnlySmallFilters();
 				
 				// draw the cell background
+				if (replayReadOnly && replayAppliedValues.contains(cellIndex))
+                    cellBackground = appearance.getHintBackgroundColor();
 				int cellX = getX(row, col);
 				int cellY = getY(row, col);
 				setColor(g2, allBlack, cellBackground);
 				g2.fillRect(cellX, cellY, cellSize, cellSize);
-				if (!isPrint && includeAnnotations) {
-					drawBoxReasoningCellUnderlay(g2, cellIndex, cellX, cellY,
-							appearance, cellBackground);
-				}
+                annotationCellBackgrounds[cellIndex] = cellBackground;
 				if (transientReferenceCell) {
 					setColor(g2, allBlack, appearance.getReferenceHighlightColor());
 					drawTransientReferenceFrame(cellIndex, cellX, cellY);
@@ -8452,29 +10481,20 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 					drawCellFrame(cellX, cellY, cellSize, Math.max(2, Math.min(4, cellSize / 24)));
 				}
 				
-				boolean drawSelectionFrame = isSelected && !isPrint && (appearance.isDark()
-						|| !g2.getColor().equals(appearance.getActiveCellColor()));
+				boolean drawSelectionFrame = isSelected && !isPrint;
 				int frameSize = getCellFrameSize(row, col);
 				if (showFilterFrame) {
 					Color markerColor = candidateCountMatch
 							? candidateCountFilterColor(cellIndex, appearance)
 							: appearance.getFilterMarkerColor(cellBackground);
-					if (drawSelectionFrame) {
-						// The yellow and filter frames share the original cursor band. The
-						// inner filter portion never advances into candidate positions.
-						int greenFrameSize = Math.max(2, frameSize * 3 / 7);
-						greenFrameSize = Math.min(greenFrameSize, Math.max(1, frameSize - 2));
-						int yellowFrameSize = frameSize - greenFrameSize;
-						drawSelectionFrame(cellX, cellY, cellSize, frameSize,
-								allBlack, appearance);
-						setColor(g2, allBlack, markerColor);
-						drawCellFrame(cellX + yellowFrameSize, cellY + yellowFrameSize,
-								cellSize - 2 * yellowFrameSize, greenFrameSize);
-					} else {
-						setColor(g2, allBlack, markerColor);
-						drawCellFrame(cellX, cellY, cellSize, Math.max(2, Math.min(4, frameSize)));
-					}
-				} else if (drawSelectionFrame) {
+                    setColor(g2, allBlack, markerColor);
+                    drawCellFrame(cellX, cellY, cellSize, Math.max(2, Math.min(4, frameSize)));
+                }
+                // Region sources and the selected-cell corners remain visible over filters.
+                if (!isPrint && includeAnnotations) {
+                    drawBoxReasoningCellUnderlay(g2, cellIndex, cellX, cellY, appearance, cellBackground);
+                }
+                if (drawSelectionFrame) {
 					drawSelectionFrame(cellX, cellY, cellSize, frameSize,
 							allBlack, appearance);
 				}
@@ -8602,7 +10622,9 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 						
 						offColor = null;
 						// one candidate at a time
-						if ((sudoku.isCandidate(cellIndex, i, userCandidates) ||
+						if ((sudoku.isCandidate(cellIndex, i, userCandidates)
+                                || replayReadOnly && replayProofCandidates.contains(cellIndex * 10 + i)
+                                || doodleDisplayProtectedCandidates.contains(cellIndex * 10 + i) && sudoku.isCandidate(cellIndex, i) ||
 							(showCandidates && showDeviations && sudoku.isSolutionSet() && i == sudoku.getSolution(cellIndex)))
 							&& (doodleThoughtPreviewProjection == null
 									|| !doodleThoughtPreviewProjection.filledCells.containsKey(cellIndex))
@@ -8721,7 +10743,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 								
 								for (Candidate cand : step.getCandidatesToDelete()) {
 									if (cand.getIndex() == index && cand.getValue() == i) {
-									hintColor = isFocusedReasoningPreview() ? PREVIEW_DELETE_COLOR : appearance.getHintDeleteBackgroundColor();
+										hintColor = isFocusedReasoningPreview() || replayReadOnly && replayBoxProof ? PREVIEW_DELETE_COLOR : appearance.getHintDeleteBackgroundColor();
 									candColor = appearance.getHintForegroundColor(
 											Options.getInstance().getHintCandidateDeleteColor(),
 											Options.HINT_CANDIDATE_DELETE_COLOR);
@@ -8738,13 +10760,20 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 								}
 							}
 							
-							if (isShowWrongValues() == true && !sudoku.isCandidateValid(cellIndex, i, userCandidates)) {
+                            if(replayReadOnly&&(replayFinCandidates.contains(cellIndex*10+i)||replayEndoFinCandidates.contains(cellIndex*10+i))){
+                                boolean endo=replayEndoFinCandidates.contains(cellIndex*10+i);
+                                hintColor=endo?appearance.getHintEndoFinBackgroundColor():appearance.getHintFinBackgroundColor();
+                                candColor=appearance.getHintForegroundColor(endo?Options.getInstance().getHintCandidateEndoFinColor():Options.getInstance().getHintCandidateFinColor(),endo?Options.HINT_CANDIDATE_ENDO_FIN_COLOR:Options.HINT_CANDIDATE_FIN_COLOR);
+                            }
+							if (isShowWrongValues() == true && !sudoku.isCandidateValid(cellIndex, i, userCandidates)
+                                    && !(replayReadOnly && replayProofCandidates.contains(cellIndex * 10 + i))) {
 								offColor = Options.getInstance().getColorKuColor(10);
 								offCand = 10;
 								candColor = appearance.getWrongValueColor();
 							}
 							
 							if (!sudoku.isCandidate(cellIndex, i, userCandidates) && isShowDeviations()
+                                    && !(replayReadOnly && replayProofCandidates.contains(cellIndex * 10 + i))
 									&& sudoku.isSolutionSet() && i == sudoku.getSolution(cellIndex)) {
 								offColor = Options.getInstance().getColorKuColor(11);
 								offCand = 11;
@@ -8762,6 +10791,8 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 							&& !isPrint && !isInvalidCells()
 							&& Options.getInstance().isOnlySmallFilters()
 							&& !showOverlapCandidateMarker;
+                    if (alignDoodleGlyphs) doodleCandidateBold[cellIndex*10+i]
+                            = showOverlapCandidateMarker && hintColor == null && offColor == null;
 
 					// highlight/filters candidates instead of cells
 					if (showOverlapCandidateMarker || showValueCandidateMarker || showCountCandidateMarker) {
@@ -8789,31 +10820,22 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 							}
 
 							if (coloringColor != null) {
-								setColor(g2, allBlack, coloringColor);
 								candidateBackground = coloringColor;
-								g2.fillRect(
-									(int) Math.round(startX + shiftX + third / 2.0 - ddy / 2.0),
-									(int) Math.round(startY + shiftY + third / 2.0 - ddy / 2.0),
-									(int) Math.round(ddy), (int) Math.round(ddy)
-								);
+								drawCandidateColorTile(g2,cellIndex,i,ddy,coloringColor,cellBackground,appearance,allBlack);
 							}
 							
 							if (hintColor != null) {
 								setColor(g2, allBlack, hintColor);
 								candidateBackground = hintColor;
-								int hintX = (int) Math.round(startX + shiftX + third / 2.0 - ddy / 2.0);
-								int hintY = (int) Math.round(startY + shiftY + third / 2.0 - ddy / 2.0);
-								int hintSize = (int) Math.round(ddy);
-                                // Keep the native hint glyph/background above manual overlays.
-                                generatedCandidateForeground.add(new java.awt.geom.Area(
-                                    new java.awt.Rectangle(hintX-2,hintY-2,hintSize+4,hintSize+4)));
-								if (appearance.isDark()) {
-									int arc = Math.max(2, hintSize / 3);
-									g2.fillRoundRect(hintX, hintY, hintSize, hintSize, arc, arc);
-								} else {
-									g2.fillOval(hintX, hintY, hintSize, hintSize);
-								}
+                                nativeCandidateMarkerSizes[cellIndex*10+i] = candidateNodeDisplayDiameter(cellIndex,i,ddy,false);
+                                Shape hintShape = nativeCandidateShape(cellIndex,i,appearance);
+                                // Protect the actual native semantic core, leaving room for manual source rims.
+                                java.awt.geom.Area protectedCore = new java.awt.geom.Area(hintShape);
+                                protectedCore.add(new java.awt.geom.Area(new BasicStroke(1f).createStrokedShape(hintShape)));
+                                generatedCandidateForeground.add(protectedCore);
+                                g2.fill(hintShape);
 							}
+                            annotationCandidateBackgrounds[cellIndex*10+i] = candidateBackground;
 							
 							if (showOverlapCandidateMarker && hintColor == null && offColor == null) {
 								// Cross-group overlap remains visible even if explicit candidate
@@ -8824,11 +10846,20 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 							} else {
 								g2.setFont(candidateFont);
 							}
+                            if (alignDoodleGlyphs) doodleCandidateBold[cellIndex * 10 + i]
+                                    = showOverlapCandidateMarker && hintColor == null && offColor == null;
 							if (!Color.WHITE.equals(candColor)) {
 								candColor = appearance.getReadableForeground(candidateBackground, candColor);
 							}
+                            boolean previewPeer = !isPrint && doodleThoughtPreviewProjection != null
+                                    && doodleThoughtPreviewProjection.peerCandidates.contains(cellIndex * 10 + i)
+                                    && hintColor == null && offColor == null
+                                    && !coloringCandidateMap.containsKey(cellIndex * 10 + i)
+                                    && candColor.equals(appearance.getReadableForeground(candidateBackground,
+                                            appearance.getCandidateColor()));
+                            if (previewPeer) candColor = Options.getInstance().getColoringColors()[doodleThoughtPreviewProjection.group * 2];
                             java.awt.Composite beforeCandidate=g2.getComposite();
-                            if(!isPrint&&includeAnnotations&&fadeCurrentDoodleCross(cellIndex,i))
+                            if(previewPeer || !isPrint&&includeAnnotations&&fadeCurrentDoodleCross(cellIndex,i,doodleFrame))
                                 g2.setComposite(AlphaComposite.SrcOver.derive(0.45f));
 							setColor(g2, allBlack, candColor);
 							if (!Options.getInstance().isShowColorKuAct()) {
@@ -8919,21 +10950,32 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 			break;
 		}
 
+        if (authoredPreview && !isPrint) prepareAuthoredConclusionMarkers(ddy);
+        DoodlePaintState candidatePaintState = includeAnnotations ? prepareDoodlePaintState() : null;
 		if (includeAnnotations) {
             java.awt.Shape annotationClip=g2.getClip();
+            java.awt.Shape protectedClip=annotationClip;
             if(renderGeneratedStep && !generatedCandidateForeground.isEmpty()) {
                 java.awt.geom.Area behind=new java.awt.geom.Area(annotationClip==null
                     ? new java.awt.Rectangle(0,0,totalWidth,totalHeight):annotationClip);
                 behind.subtract(generatedCandidateForeground);g2.setClip(behind);
+                protectedClip=behind;
             }
+            drawBoxReasoningBoundaries(g2, appearance);
 			if (!isPrint) {
 				drawBoxReasoningDragRubberBand(g2);
 			}
-			drawDoodles(g2, totalWidth, totalHeight, isPrint);
-			if (!isPrint) drawDoodleThoughtPreviewConflicts(g2);
+			drawDoodleLayer(g2,totalWidth,totalHeight,isPrint,candidatePaintState,false);
             if (!isPrint) drawDeletionGesture(g2);
-			if (!isPrint) lastUserChainRouteDiameter=ddy>0?ddy:Math.max(1.0,candidateHeight);
-            drawUserChains(g2, appearance, ddy);
+            if (!isPrint) {
+                lastCandidateMarkDiameter=ddy>0?ddy:Math.max(1.0,candidateHeight);
+                lastUserChainRouteDiameter=candidateNodeMaxDiameter(ddy,true);
+            }
+            drawUserChains(g2, appearance, ddy, false);
+            g2.setClip(annotationClip);
+            if (userChainsVisible) drawUserChainNodes(g2,appearance,ddy);
+            g2.setClip(protectedClip);
+            drawDoodleLayer(g2,totalWidth,totalHeight,isPrint,candidatePaintState,true);
             g2.setClip(annotationClip);
 		}
 
@@ -9003,7 +11045,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 				}
 				
 				Chain chain = step.getChains().get(ci);
-                if(step!=importedChainStep || importedChainText==null)drawChain(g2, chain, cellSize, ddy, allBlack, appearance);
+                if(step!=importedChainStep || importedChainText==null)drawChain(g2, chain, cellSize, candidateNodeMaxDiameter(ddy,false), allBlack, appearance);
 			}
 		}
 
@@ -9021,17 +11063,31 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         if(includeAnnotations && (renderGeneratedStep || authoredPreview)) {
             annotationPaintLayer=2;
             drawLaterCandidateColors(g2,appearance,ddy);
+            java.awt.Shape laterClip=g2.getClip();
+            if (!generatedCandidateForeground.isEmpty()) {
+                java.awt.geom.Area behind = new java.awt.geom.Area(laterClip==null
+                        ? new java.awt.Rectangle(0,0,totalWidth,totalHeight):laterClip);
+                behind.subtract(generatedCandidateForeground);g2.setClip(behind);
+            }
             for(int c=0;c<81;c++)drawBoxReasoningCellUnderlay(g2,c,getX(c/9,c%9),getY(c/9,c%9),appearance,appearance.getDefaultCellColor());
-            drawUserChains(g2,appearance,ddy);
-            drawDoodles(g2,totalWidth,totalHeight,isPrint);
-            if(!isPrint)drawDoodleThoughtPreviewConflicts(g2);
+            drawBoxReasoningBoundaries(g2, appearance);
+            drawUserChains(g2,appearance,ddy,false);
+            g2.setClip(laterClip);
+            if (userChainsVisible) drawUserChainNodes(g2,appearance,ddy);
+            // Compose hint rims once, after later T tiles, so adding a tile cannot erase older L sources.
+            if (userChainsVisible) drawUserChainNodes(g2,appearance,ddy,true);
+            // Free ink remains after chains in the later timeline layer, as before.
+            drawDoodleLayer(g2,totalWidth,totalHeight,isPrint,candidatePaintState,false);
+            g2.setClip(laterClip);
+            if (authoredPreview && !isPrint) drawAuthoredConclusions(g2, appearance, ddy);
+            drawDoodleLayer(g2,totalWidth,totalHeight,isPrint,candidatePaintState,true);
             if(!isPrint){drawBoxReasoningDragRubberBand(g2);drawDeletionGesture(g2);}
             annotationPaintLayer=0;
         }
-        if (authoredPreview && !isPrint) drawAuthoredConclusions(g2, appearance, ddy);
+        if (authoredPreview && !isPrint && !includeAnnotations) drawAuthoredConclusions(g2, appearance, ddy);
         if(includeAnnotations && !isPrint) {
-            drawChainOrigin(g2,appearance,ddy);
-            drawChainJunctions(g2,appearance,ddy);
+            drawChainOrigin(g2,appearance,candidateNodeMaxDiameter(ddy,true));
+            drawChainJunctions(g2,appearance,candidateNodeMaxDiameter(ddy,true));
         }
 		if (!isPrint) {
 			drawUnitHandles(appearance);
@@ -9111,15 +11167,21 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 
 	private void drawSelectionFrame(int x, int y, int size, int frameSize,
 			boolean allBlack, SudokuAppearancePalette appearance) {
-		setColor(g2, allBlack, appearance.getActiveCellColor());
-		drawCellFrame(x, y, size, frameSize);
-		if (!allBlack && !appearance.getActiveCellBorderColor()
-				.equals(appearance.getActiveCellColor())) {
-			setColor(g2, false, appearance.getActiveCellBorderColor());
-			// The outermost pixel is later occupied by grid lines, so keep the
-			// contrast edge one pixel inside the cell where it remains visible.
-			drawCellFrame(x + 1, y + 1, size - 2, 1);
-		}
+        Graphics2D g=(Graphics2D)g2.create();
+        try {
+            double inset=Math.max(4,Math.min(6,size/22.0)), arm=Math.max(4,Math.min(11,size/12.0));
+            Path2D corners=new Path2D.Double();
+            for(int sx:new int[]{-1,1})for(int sy:new int[]{-1,1}) {
+                double cx=sx<0?x+inset:x+size-inset,cy=sy<0?y+inset:y+size-inset;
+                corners.moveTo(cx-sx*arm,cy);corners.lineTo(cx,cy);corners.lineTo(cx,cy-sy*arm);
+            }
+            Color ink=appearance.getCandidateColor();
+            float width=Math.max(1.3f,Math.min(2f,size/65f));
+            g.setStroke(new BasicStroke(width+1.6f,BasicStroke.CAP_SQUARE,BasicStroke.JOIN_MITER));
+            setColor(g,allBlack,appearance.getAnnotationSeparator(ink,appearance.getDefaultCellColor()));g.draw(corners);
+            g.setStroke(new BasicStroke(width,BasicStroke.CAP_SQUARE,BasicStroke.JOIN_MITER));
+            setColor(g,allBlack,ink);g.draw(corners);
+        } finally { g.dispose(); }
 	}
 
 	/**
@@ -9158,7 +11220,6 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         Graphics2D g = (Graphics2D) graphics.create();
         try {
             g.setComposite(AlphaComposite.SrcOver);
-            g.setFont(candidateFont.deriveFont(Font.BOLD));
             for (Candidate target : step.getCandidatesToDelete())
                 drawAuthoredConclusion(g, target.getIndex(), target.getValue(), diameter,
                         PREVIEW_DELETE_COLOR);
@@ -9170,17 +11231,24 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         } finally { g.dispose(); }
     }
 
+    private void prepareAuthoredConclusionMarkers(double diameter) {
+        for (Candidate target : step.getCandidatesToDelete())
+            nativeCandidateMarkerSizes[target.getIndex()*10+target.getValue()] =
+                    candidateNodeDisplayDiameter(target.getIndex(),target.getValue(),diameter,true);
+        if (step.isAuthoredPlacement()) for (int i=0;i<step.getIndices().size();i++) {
+            int cell=step.getIndices().get(i),digit=step.getValues().get(i);
+            nativeCandidateMarkerSizes[cell*10+digit] = candidateNodeDisplayDiameter(cell,digit,diameter,true);
+        }
+    }
+
     private void drawAuthoredConclusion(Graphics2D g, int cell, int digit, double diameter, Color color) {
         if (!sudoku.isCandidate(cell, digit)) return;
         Point2D.Double center = getCandKoord(cell, digit, cellSize);
-        double size = Math.max(diameter, candidateHeight);
+        double size = nativeCandidateMarkerSizes[cell*10+digit];
         g.setColor(color);
         g.fill(new java.awt.geom.Ellipse2D.Double(center.x-size/2, center.y-size/2, size, size));
         g.setColor(Color.WHITE);
-        FontMetrics metrics = g.getFontMetrics();
-        String text = Integer.toString(digit);
-        g.drawString(text, (float)(center.x-metrics.stringWidth(text)/2.0),
-                (float)(center.y+(metrics.getAscent()-metrics.getDescent())/2.0));
+        drawCenteredChainGlyph(g,digit,center);
     }
 
     private void drawImportedChain(Graphics2D graphics,UserChain chain,double diameter,SudokuAppearancePalette appearance){
@@ -9324,7 +11392,14 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
 	 * @return
 	 */
 	private Point2D.Double getCandKoord(int index, int cand, int cellSize) {
-		double third = cellSize / 3;
+        if (cellSize == this.cellSize && doodleCandidateGlyphLayout != null
+                && doodleCandidateGlyphLayout.cellSize == cellSize && !Options.getInstance().isShowColorKuAct())
+            return doodleCandidateGlyphCenter(index,cand);
+        return candidateSlotCenter(index,cand,cellSize);
+    }
+
+    private Point2D.Double candidateSlotCenter(int index, int cand, int cellSize) {
+		double third = cellSize / 3.0;
 		double startX = getX(Sudoku2.getRow(index), Sudoku2.getCol(index));
 		double startY = getY(Sudoku2.getRow(index), Sudoku2.getCol(index));
 		double shiftX = ((cand - 1) % 3) * third;
@@ -10447,6 +12522,7 @@ public class SudokuPanel extends javax.swing.JPanel implements Printable {
         annotationCursorBeforeDelete = null;
         setCursor(Cursor.getDefaultCursor());
         updateDeletionCursor();
+        if (mainFrame != null) mainFrame.doodleHypothesisStateChanged();
     }
 
 	/**

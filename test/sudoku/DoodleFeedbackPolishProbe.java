@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 import java.awt.*;
 import java.awt.event.*;
@@ -18,18 +20,26 @@ public final class DoodleFeedbackPolishProbe {
  static void mark(int c,int d,int kind)throws Exception{invoke("toggleCandidateHypothesisMark",new Class[]{int.class,int.class,int.class,int.class,Color.class},c,d,kind,p.getCellZoomPanel().getPaletteGroup(),Color.BLUE);}
  static int pixels(BufferedImage im){int n=0;for(int y=0;y<810;y++)for(int x=0;x<810;x++)if((im.getRGB(x,y)>>>24)>0)n++;return n;}
  static void key(int code,boolean down){KeyEvent e=new KeyEvent(p,down?KeyEvent.KEY_PRESSED:KeyEvent.KEY_RELEASED,System.currentTimeMillis(),down?InputEvent.ALT_DOWN_MASK:0,code,KeyEvent.CHAR_UNDEFINED);if(down)p.handleAnnotationKeyPressed(e);else p.handleAnnotationToolKeyReleased(e);}
+ static void timedClick(Point pt,long when){p.dispatchEvent(new MouseEvent(p,MouseEvent.MOUSE_PRESSED,when,0,pt.x,pt.y,1,false,MouseEvent.BUTTON1));p.dispatchEvent(new MouseEvent(p,MouseEvent.MOUSE_RELEASED,when+1,0,pt.x,pt.y,1,false,MouseEvent.BUTTON1));}
  public static void main(String[] args)throws Exception{
   System.setProperty("apple.awt.UIElement","true");
   try{edt(()->{
    ApplicationAppearance.initialize(AppearanceMode.LIGHT);f=new MainFrame(null);p=f.getSudokuPanel();p.setSudoku((String)null);p.getSudoku().set(GroupedChainProbe.blank());p.setShowCandidates(true);p.setSize(810,810);p.setAnnotationTool(AnnotationTool.DOODLE);p.getCellZoomPanel().selectPaletteGroup(0);render();
    String board=TechniqueStepCatalog.createSignature(p.getSudoku());Point a=ChainOriginProbe.candidate(0,1);
-   click(1,0,a);check(marks().size()==1,"single did not apply immediately");check(pixels(ink())>20,"first click has no immediate mark");
-   click(1,0,a);check(marks().size()==1&&marks().get(0).getCandidateMarkKind()==DoodleStroke.MARK_FALSE_CROSS,"double left stray circle");
+   long firstWhen=System.currentTimeMillis();timedClick(a,firstWhen);check(marks().size()==1,"single did not apply immediately");check(pixels(ink())>20,"first click has no immediate mark");
+   // Rendering between clicks must not alter this fixture's intended input interval.
+   timedClick(a,firstWhen+100);check(marks().size()==1&&marks().get(0).getCandidateMarkKind()==DoodleStroke.MARK_FALSE_CROSS,"double left stray circle");
    check(((Integer)invoke("mappedClickInterval",new Class[]{}))==200,"double window not 200");
-   float scale=(Float)invoke("candidateMarkScale",new Class[]{DoodleStroke.class},marks().get(0));check(Math.abs(scale-.62)<.001,"cross scale");
-   // Measure the cross itself; its new opaque green start contour is a separate state.
+   Shape path=(Shape)invoke("projectedDoodlePath",new Class[]{DoodleStroke.class,int.class,int.class},marks().get(0),810,810);
+   double circleDiameter=(Double)read("lastUserChainRouteDiameter");
+   check(path.getBounds2D().getWidth()<circleDiameter/3,"cross crowds its candidate slot");
+   float pen=(Float)invoke("doodleStrokePixelWidth",new Class[]{DoodleStroke.class,int.class,int.class},marks().get(0),810,810);
+   check(pen>=.75f&&pen<=1.25f,"cross obscures its candidate with a thick pen");
+   // The current cross stays clear while the digit fades; foreign marks recede separately.
    p.cancelDoodleHypothesisStarts();
-   BufferedImage faded=ink();int max=0;for(int y=0;y<810;y++)for(int x=0;x<810;x++)max=Math.max(max,faded.getRGB(x,y)>>>24);check(max>80&&max<170,"cross not translucent: "+max);
+   BufferedImage current=ink();int currentMax=0;for(int y=0;y<810;y++)for(int x=0;x<810;x++)currentMax=Math.max(currentMax,current.getRGB(x,y)>>>24);check(currentMax>=250,"current cross lost clear source ink: "+currentMax);
+   p.getCellZoomPanel().selectPaletteGroup(1);BufferedImage foreign=ink();int foreignMax=0;for(int y=0;y<810;y++)for(int x=0;x<810;x++)foreignMax=Math.max(foreignMax,foreign.getRGB(x,y)>>>24);
+   check(foreignMax>0&&foreignMax<currentMax/4,"foreign focus does not clearly recede: "+foreignMax);p.getCellZoomPanel().selectPaletteGroup(0);
    check((Boolean)invoke("fadeCurrentDoodleCross",new Class[]{int.class,int.class},0,1),"candidate not faded");
    set("lastMousePosition",new Point(1,1));key(KeyEvent.VK_ALT,true);render();
    check(read("doodleThoughtPreviewProjection")!=null,"cross-only group cannot preview");key(KeyEvent.VK_ALT,false);
@@ -55,7 +65,7 @@ public final class DoodleFeedbackPolishProbe {
    check(p.getDoodleEraserRadius()>radius,"eraser wheel");check(stateButton.getToolTipText().contains(String.format(java.util.Locale.ROOT,"%.1f",p.getDoodleEraserRadius()*200)),"toolbar radius stale");
    p.handleEscapeVisualReset();check(p.getCursor().equals(beforeErase),"cancel kept eraser cursor");check(!p.isDoodleErasing()&&stateButton.getToolTipText().contains("粗细"),"cancel kept eraser state");
    p.clearDoodlesWithUndo();click(1,0,a);p.handleEscapeVisualReset();check(marks().isEmpty()&&pixels(ink())==0,"cancel kept pending glyph");
-   System.out.println("PASS: immediate single with rollback snapshot, exclusive double, 200ms, smaller faded cross/candidate, current-group preview from blank, release/cancel, held eraser toolbar and wheel size");return null;
+   System.out.println("PASS: immediate single with rollback snapshot, exclusive double, 200ms, compact clear cross with faded candidate and distinct foreign focus, current-group preview from blank, release/cancel, held eraser toolbar and wheel size");return null;
   });
   // Use event timestamps for the double-click boundary: Thread.sleep(170) can
   // resume after 200ms under desktop/EDT load and is not an input interval.

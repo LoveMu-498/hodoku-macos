@@ -17,6 +17,7 @@
  * along with HoDoKu. If not, see <http://www.gnu.org/licenses/>.
  */
 
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package generator;
 
 import java.util.logging.Level;
@@ -25,6 +26,7 @@ import sudoku.DifficultyLevel;
 import sudoku.DifficultyType;
 import sudoku.GameMode;
 import sudoku.Options;
+import sudoku.SettingsPersistence;
 import sudoku.StepConfig;
 
 /**
@@ -79,7 +81,7 @@ public class BackgroundGeneratorThread implements Runnable {
 	 * 
 	 * @return
 	 */
-	public static BackgroundGeneratorThread getInstance() {
+	public static synchronized BackgroundGeneratorThread getInstance() {
 		if (instance == null) {
 			instance = new BackgroundGeneratorThread();
 		}
@@ -104,6 +106,7 @@ public class BackgroundGeneratorThread implements Runnable {
 				puzzles[i - 1] = puzzles[i];
 			}
 			puzzles[puzzles.length - 1] = null;
+			SettingsPersistence.requestSave();
 		}
 		if (DEBUG) {
 			System.out.println("Got puzzle from cache: " + level.getName() + "/" + mode.name() + "/" + newPuzzle);
@@ -127,6 +130,7 @@ public class BackgroundGeneratorThread implements Runnable {
 		for (int i = 0; i < puzzles.length; i++) {
 			if (puzzles[i] == null) {
 				puzzles[i] = sudoku;
+				SettingsPersistence.requestSave();
 				break;
 			}
 		}
@@ -158,6 +162,7 @@ public class BackgroundGeneratorThread implements Runnable {
 		for (int i = 0; i < puzzles1.length; i++) {
 			puzzles1[i] = null;
 		}
+		SettingsPersistence.requestSave();
 		startCreation();
 	}
 
@@ -182,6 +187,7 @@ public class BackgroundGeneratorThread implements Runnable {
 			puzzles[i] = null;
 		}
 		Options.getInstance().setPractisingPuzzlesLevel(newLevel);
+		SettingsPersistence.requestSave();
 		startCreation();
 	}
 

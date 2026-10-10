@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with HoDoKu. If not, see <http://www.gnu.org/licenses/>.
  */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import generator.BackgroundGeneratorThread;
@@ -186,9 +187,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	
 	private MyFileFilter[] configFileFilters = new MyFileFilter[] { new MyFileFilter(0) };
 	private boolean outerSplitPaneInitialized = false; // used to adjust divider bar at startup!
-	private int resetHDivLocLoc = -1; // when resetting windows, the divider location gets changed by some layout function
-	private boolean resetHDivLoc = false; // adjust DividerLocation after change
-	private long resetHDivLocTicks = 0; // only adjust within a second or so
+	private boolean restoringWindowLayout;
 	private String configFileExt = java.util.ResourceBundle.getBundle("intl/MainFrame")
 			.getString("MainFrame.config_file_ext");
 	private String solutionFileExt = java.util.ResourceBundle.getBundle("intl/MainFrame")
@@ -298,8 +297,16 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
             java.awt.Component source = event.getComponent();
             java.awt.Window enteredWindow = source instanceof java.awt.Window ? (java.awt.Window) source
                     : source == null ? null : SwingUtilities.getWindowAncestor(source);
+            // A palette hold can end after focus moves into a field or dialog.
+            // Release it before those contexts bypass annotation dispatch.
+            if (sudokuPanel != null) {
+                if (sudokuPanel.handlePaletteKeyReleased(event)) return true;
+                if (source instanceof javax.swing.text.JTextComponent || enteredWindow instanceof javax.swing.JDialog)
+                    sudokuPanel.cancelPaletteKeyScope();
+            }
             if (replayController != null && replayController.isViewing() && enteredWindow == MainFrame.this) {
                 if(event.getKeyCode()==KeyEvent.VK_F11){singlesKeyDown=false;event.consume();return true;}
+                if(javax.swing.MenuSelectionManager.defaultManager().getSelectedPath().length>0)return false;
                 return replayController.viewer().handleKeyEvent(event);
             }
 			if ((event.getID() != KeyEvent.KEY_PRESSED && event.getID() != KeyEvent.KEY_RELEASED
@@ -308,14 +315,30 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				return false;
 			}
 
+            boolean shiftEnter = event.getKeyCode() == KeyEvent.VK_ENTER
+                    && event.getModifiersEx() == KeyEvent.SHIFT_DOWN_MASK;
+            boolean boardEnterSource = source == sudokuPanel || source == MainFrame.this;
+            boolean transcriptionShortcut = shiftEnter && boardEnterSource
+                    && javax.swing.MenuSelectionManager.defaultManager().getSelectedPath().length == 0
+                    && (techniqueSelectorPopup == null || !techniqueSelectorPopup.isVisible())
+                    && (currentReasoningMenu == null || !currentReasoningMenu.isVisible())
+                    && sudokuPanel.hasChainTranscriptionShortcutContext();
             if ((source == MainFrame.this || enteredWindow == MainFrame.this || currentReasoningMenu != null && currentReasoningMenu.isVisible())
-                    && event.getKeyCode() == KeyEvent.VK_ENTER && event.getModifiersEx() == 0) {
+                    && event.getKeyCode() == KeyEvent.VK_ENTER
+                    && (event.getModifiersEx() == 0 || shiftEnter && boardEnterSource)) {
                 if (event.getID() == KeyEvent.KEY_RELEASED) reasoningEnterDown = false;
                 else if (event.getID() == KeyEvent.KEY_PRESSED) {
                     if (reasoningEnterDown) return true;
-                    reasoningEnterDown = currentReasoningMenu != null && currentReasoningMenu.isVisible() || sudokuPanel.hasReasoningEnterContext() || sudokuPanel.getStep()!=null;
+                    // Shift+Enter starts transcription, but releasing Shift while
+                    // Enter is held must not turn its repeats into confirmation.
+                    reasoningEnterDown = transcriptionShortcut || event.getModifiersEx() == 0
+                            && (currentReasoningMenu != null && currentReasoningMenu.isVisible() || sudokuPanel.hasReasoningEnterContext() || sudokuPanel.getStep()!=null
+                            || !(source instanceof javax.swing.text.JTextComponent) && !(enteredWindow instanceof javax.swing.JDialog)
+                                && sudokuPanel.hasDoodleConclusionEnterContext());
                 }
             }
+            if (shiftEnter && event.getID() == KeyEvent.KEY_PRESSED
+                    && sudokuPanel.hasChainTranscriptionShortcutContext() && !transcriptionShortcut) return false;
             // Owned modal dialogs are descendants too; their Escape/Enter belong
             // to the dialog, not the board's annotation dispatcher.
             if (enteredWindow instanceof javax.swing.JDialog) return false;
@@ -517,9 +540,22 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	 */
 	private int sudokuFileType = -1;
 	private final SessionStore sessionStore = new SessionStore(ApplicationPaths.getSessionFile());
+    private SessionPersistence sessionPersistence;
+    private final javax.swing.JButton backgroundSaveStatus = new javax.swing.JButton();
 	private final CompletionTransition completionTransition = new CompletionTransition();
 	private boolean sessionRestoreInProgress;
 	private javax.swing.JDialog quitFailureDialog;
+	private boolean quitInProgress;
+	private MacOSApplication.QuitRequest pendingNativeQuit;
+    private volatile SaveTrace.Trace nativeQuitTrace;
+    private SaveTrace.Trace activeQuitTrace;
+    private SessionSnapshot restoredNativeSession;
+    private javax.swing.Timer deferredQuitTimer;
+    private MacOSApplication.QuitRequest deferredQuitRequest;
+    private SaveTrace.Trace deferredQuitTrace;
+    private java.awt.Dialog deferredQuitDialog;
+    private String deferredQuitTitle;
+    private SaveTrace.Span deferredQuitWait;
 
 	private UIExportLine exportWindow;
 	private UIImportLine importWindow;
@@ -546,6 +582,8 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	private javax.swing.JMenuItem createSavePointMenuItem;
     private javax.swing.JMenuItem viewReplayMenuItem;
     private javax.swing.JMenuItem replayLibraryMenuItem;
+    private javax.swing.JMenuItem openReplayMenuItem;
+    private javax.swing.JMenuItem fileReplayLibraryMenuItem;
 	private javax.swing.JMenu fileMenu;
 	private javax.swing.JMenuItem printMenuItem;
 	private javax.swing.JMenuItem extendedPrintMenuItem;
@@ -566,6 +604,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
     private javax.swing.JPanel doodleHypothesisToolbar;
     private javax.swing.JToggleButton doodleHypothesisEntryButton;
     private javax.swing.JButton doodleHypothesisCancelButton;
+    private javax.swing.JButton doodleCircleReductionButton;
 	private javax.swing.JMenu helpMenu;
 	private javax.swing.JPanel hintPanel;
 	private javax.swing.JButton hinweisAbbrechenButton;
@@ -793,11 +832,17 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			@Override
 			public void componentMoved(ComponentEvent evt) {
 				rememberNormalWindowBounds();
+                if (sessionPersistence != null && !quitInProgress && !restoringWindowLayout) {
+                    saveWindowStateInOptions(); SettingsPersistence.requestSave();
+                }
 			}
 
 			@Override
 			public void componentResized(ComponentEvent evt) {
 				rememberNormalWindowBounds();
+                if (sessionPersistence != null && !quitInProgress && !restoringWindowLayout) {
+                    saveWindowStateInOptions(); SettingsPersistence.requestSave();
+                }
 			}
 		});
 		
@@ -937,6 +982,23 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		updateCellSelectionStatus();
 		exportWindow = new UIExportLine(sudokuPanel);
 		importWindow = new UIImportLine(this);
+        backgroundSaveStatus.setVisible(false);
+        backgroundSaveStatus.setText(SaveFailure.text("backgroundFailed"));
+        backgroundSaveStatus.addActionListener(event -> showBackgroundSaveFailure());
+        statusLinePanel.add(backgroundSaveStatus);
+        sessionPersistence = new SessionPersistence(sessionStore, ApplicationPaths.getSessionFile(),
+                this::captureWorkSession, failure -> refreshBackgroundSaveStatus());
+        SettingsPersistence.setBackgroundFailureListener(failure -> refreshBackgroundSaveStatus());
+        java.beans.PropertyChangeListener layoutPreferenceChanged = event -> {
+            if (!quitInProgress && !restoringWindowLayout && sessionPersistence != null) {
+                saveWindowStateInOptions(); SettingsPersistence.requestSave();
+            }
+        };
+        outerSplitPane.addPropertyChangeListener(javax.swing.JSplitPane.DIVIDER_LOCATION_PROPERTY, layoutPreferenceChanged);
+        splitPanel.addDividerLocationListener(layoutPreferenceChanged);
+        SettingsPersistence.start();
+        saveWindowStateInOptions(); SettingsPersistence.requestSave();
+        sessionPersistence.start();
 	}
 
 	private void applyMainWindowAppearance() {
@@ -1170,7 +1232,11 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		int r = sudokuPanel.getActiveRow() + 1;
 		int c = sudokuPanel.getActiveCol() + 1;
 		
-        if (sudokuPanel.getInspectedBoxGroup() >= 0) {
+        if (sudokuPanel.hasPendingChainTranscription()) {
+            statusLabelCellSelection.setText(sudokuPanel.chainTranscriptionStatusText());
+        } else if (sudokuPanel.hasDoodleCompletion()) {
+            statusLabelCellSelection.setText(ResourceBundle.getBundle("intl/MainFrame").getString("MainFrame.doodle.completed"));
+        } else if (sudokuPanel.getInspectedBoxGroup() >= 0) {
             int group = sudokuPanel.getInspectedBoxGroup();
             int[] counts = sudokuPanel.getBoxReasoningCounts(group);
             statusLabelCellSelection.setText(java.text.MessageFormat.format(
@@ -1348,7 +1414,11 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			public void windowLostFocus(java.awt.event.WindowEvent event) {
                 singlesKeyDown=false;
 				sudokuPanel.setReviewLastBoardChange(false);
-				if (!isOwnedByThisFrame(event.getOppositeWindow())) optionKeyDown = false;
+                if (!isOwnedByThisFrame(event.getOppositeWindow())) {
+                    optionKeyDown = false;
+                    reasoningEnterDown = false;
+                    if (sudokuPanel != null) sudokuPanel.cancelChainTranscriptionOnExternalFocusLoss();
+                }
 				if (sudokuPanel != null) sudokuPanel.cancelAnnotationToolInteractionOnDeactivation();
 			}
 		});
@@ -1772,6 +1842,17 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			}
 		});
 		fileMenu.add(exportPuzzleMenuItem);
+
+        fileMenu.addSeparator();
+        openReplayMenuItem = new javax.swing.JMenuItem(bundle.getString("MainFrame.replayFiles.open"));
+        openReplayMenuItem.putClientProperty("hodoku.replay.navigation", Boolean.TRUE);
+        openReplayMenuItem.addActionListener(e -> { if (replayController != null) ReplayFileActions.importFile(replayController); });
+        fileMenu.add(openReplayMenuItem);
+        fileReplayLibraryMenuItem = new javax.swing.JMenuItem(ReplayText.text("library") + "…");
+        fileReplayLibraryMenuItem.putClientProperty("hodoku.replay.navigation", Boolean.TRUE);
+        fileReplayLibraryMenuItem.addActionListener(e -> { if (replayController != null) replayController.openLibrary(); });
+        fileMenu.add(fileReplayLibraryMenuItem);
+        fileMenu.addSeparator();
 
 		loadConfigMenuItem.setMnemonic(java.util.ResourceBundle.getBundle("intl/MainFrame")
 				.getString("MainFrame.loadConfigMenuItem.mnemonic").charAt(0));
@@ -3221,23 +3302,9 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			outerSplitPaneInitialized = true; // beware of recursion!
 			int diff = (int) (hintPanel.getMinimumSize().getHeight() - hintPanel.getSize().getHeight());
 			if (diff > 0) {
-				resetHDivLocLoc = outerSplitPane.getDividerLocation() - diff - 5;
-				outerSplitPane.setDividerLocation(resetHDivLocLoc);;
+				outerSplitPane.setDividerLocation(outerSplitPane.getDividerLocation() - diff - 5);
 			}
 			outerSplitPaneInitialized = false;
-		}
-
-		// if the window layout is reset, the horizontal divider is moved back to its
-		// default location; since we dont know, how large toolbar and statu line are
-		// in each and every laf, this value is too small and has to be
-		// adjusted again!
-		if (resetHDivLoc && outerSplitPane.getDividerLocation() != resetHDivLocLoc) {
-			resetHDivLoc = false;
-			if (System.currentTimeMillis() - resetHDivLocTicks < 1000) {
-				outerSplitPane.setDividerLocation(resetHDivLocLoc);
-				setSize(getWidth() + 1, getHeight());
-			} else {
-			}
 		}
 	}
 
@@ -3304,15 +3371,20 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		}, new MacOSApplication.QuitCallback() {
 			@Override
 			public void quitRequested(final MacOSApplication.QuitRequest request) {
+                final SaveTrace.Trace arrival=request.isRepeated()&&nativeQuitTrace!=null?nativeQuitTrace:SaveTrace.begin("native_quit",System.nanoTime());
+                nativeQuitTrace=arrival;
+                if(arrival!=null)arrival.event("native.quit_received",request.isRepeated()?"repeated":"first");
 				if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+                    final SaveTrace.Span dispatch;
+                    try(SaveTrace.Scope scope=SaveTrace.bind(SaveTrace.context(arrival,0))){dispatch=SaveTrace.phase("ui.quit_dispatch_wait");}
 					javax.swing.SwingUtilities.invokeLater(new Runnable() {
 						@Override
 						public void run() {
-							requestQuit(request);
+                            dispatch.close();requestQuit(request,arrival);
 						}
 					});
 				} else {
-					requestQuit(request);
+                    requestQuit(request,arrival);
 				}
 			}
 		});
@@ -3330,65 +3402,174 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	}
 
 	private void requestQuit(MacOSApplication.QuitRequest nativeRequest) {
-		if (nativeRequest != null && (nativeRequest.isRepeated() || quitFailureDialog != null)) {
-			if (quitFailureDialog != null) {
-				quitFailureDialog.dispose();
-				quitFailureDialog = null;
-			}
-			nativeRequest.perform();
-			return;
-		}
+        requestQuit(nativeRequest,null);
+    }
 
-		while (true) {
-			try {
-				saveApplicationState();
-				if (relaunchAfterQuit && !MacOSApplication.scheduleRelaunch()) {
-					relaunchAfterQuit = false;
-					ResourceBundle bundle = ResourceBundle.getBundle("intl/MainFrame");
-					JOptionPane.showMessageDialog(this,
-							bundle.getString("MainFrame.appearance.restartUnavailable"),
-							bundle.getString("MainFrame.appearance.title"),
-							JOptionPane.WARNING_MESSAGE);
-                    if (replayController != null) replayController.cancelQuit();
-					return;
-				}
-				if (nativeRequest != null) {
-					nativeRequest.perform();
-				} else {
-					System.exit(0);
-				}
-				return;
-			} catch (IOException ex) {
-				Logger.getLogger(MainFrame.class.getName()).log(Level.SEVERE,
-						"Unable to save application state before quitting", ex);
-				int choice = showQuitFailureDialog(ex);
-				if (choice == 0) {
-					continue;
-				}
-				if (choice == 2) {
-					relaunchAfterQuit = false;
-					if (nativeRequest != null) {
-						nativeRequest.perform();
-					} else {
-						System.exit(0);
-					}
-				} else {
-					relaunchAfterQuit = false;
-					if (replayController != null) replayController.cancelQuit();
-                    if (nativeRequest != null) nativeRequest.cancel();
-				}
-				return;
-			}
-		}
-	}
+    private void requestQuit(MacOSApplication.QuitRequest nativeRequest,SaveTrace.Trace arrival) {
+        final long requestedNanos=System.nanoTime();
+        if (deferredQuitTimer != null) {
+            if (deferredQuitRequest == null) deferredQuitRequest = nativeRequest;
+            if (arrival != null && arrival != deferredQuitTrace) arrival.end("duplicate", "waiting_for_computation");
+            return;
+        }
+        java.awt.Dialog computing = quitInProgress ? null : PersistenceUiBoundary.computationDialog();
+        if (computing != null) {
+            deferQuitUntilComputationFinishes(nativeRequest, arrival, computing, requestedNanos);
+            return;
+        }
+        if (quitInProgress) {
+            if(activeQuitTrace!=null)activeQuitTrace.event("quit.repeated_request",null);
+            if(arrival!=null&&arrival!=activeQuitTrace){arrival.event("quit.forwarded_duplicate",activeQuitTrace==null?null:String.valueOf(activeQuitTrace.id));arrival.end("duplicate","forwarded");}
+            if (pendingNativeQuit == null && nativeRequest != null) pendingNativeQuit = nativeRequest;
+            if (quitFailureDialog != null) quitFailureDialog.toFront();
+            return;
+        }
+        quitInProgress = true;
+        if (sessionPersistence != null) sessionPersistence.suspend();
+        SettingsPersistence.suspend();
+        pendingNativeQuit = nativeRequest;
+        activeQuitTrace=arrival==null?SaveTrace.begin(nativeRequest==null?"quit":"native_quit",requestedNanos):arrival;
+        try (SaveTrace.Operation operation=SaveTrace.operation(activeQuitTrace)) {
+            try {
+            while (true) {
+                try {
+                    SaveProgress.run(this, true, this::prepareApplicationSave);
+                    if (relaunchAfterQuit && !MacOSApplication.scheduleRelaunch()) {
+                        relaunchAfterQuit = false;
+                        ResourceBundle bundle = ResourceBundle.getBundle("intl/MainFrame");
+                        JOptionPane.showMessageDialog(this, bundle.getString("MainFrame.appearance.restartUnavailable"),
+                                bundle.getString("MainFrame.appearance.title"), JOptionPane.WARNING_MESSAGE);
+                        if (replayController != null) replayController.cancelQuit();
+                        if (pendingNativeQuit != null) pendingNativeQuit.cancel();
+                        operation.outcome("relaunch_cancelled");
+                        return;
+                    }
+                    finishQuit();
+                    return;
+                } catch (IOException ex) {
+                    Logger.getLogger(MainFrame.class.getName()).log(Level.SEVERE,
+                            "Unable to save application state before quitting", ex);
+                    int choice;
+                    try(SaveTrace.Span decision=SaveTrace.phase("quit.failure_dialog_wait")){
+                        choice=showQuitFailureDialog(ex);SaveTrace.event("quit.failure_choice",choice==0?"retry":choice==2?"quit_anyway":"cancel");
+                    }
+                    if (choice == 0) continue;
+                    relaunchAfterQuit = false;
+                    if (choice == 2) finishQuit();
+                    else {
+                        if (replayController != null) replayController.cancelQuit();
+                        if (pendingNativeQuit != null) pendingNativeQuit.cancel();
+                        operation.outcome("cancelled");
+                    }
+                    return;
+                }
+            }
+            }catch(RuntimeException|Error failure){operation.outcome("unhandled_failure");throw failure;}
+        } finally {
+            quitInProgress = false;
+            pendingNativeQuit = null;
+            if(nativeQuitTrace==activeQuitTrace)nativeQuitTrace=null;
+            activeQuitTrace=null;
+            // Reached only when exit was cancelled or failed; successful JVM exit never returns.
+            if (isDisplayable()) {
+                SettingsPersistence.start(); SettingsPersistence.requestSave();
+                if (sessionPersistence != null) sessionPersistence.start();
+            }
+        }
+    }
+
+    /** Wait without blocking EDT while a modal worker still owns mutable solver state. */
+    private void deferQuitUntilComputationFinishes(MacOSApplication.QuitRequest request,
+            SaveTrace.Trace arrival, java.awt.Dialog computing, long requestedNanos) {
+        deferredQuitRequest = request;
+        deferredQuitTrace = arrival == null ? SaveTrace.begin(request == null ? "quit" : "native_quit", requestedNanos) : arrival;
+        deferredQuitDialog = computing; deferredQuitTitle = computing.getTitle();
+        computing.setTitle(SaveFailure.text("waitComputation"));
+        try (SaveTrace.Scope scope = SaveTrace.bind(SaveTrace.context(deferredQuitTrace, 0))) {
+            deferredQuitWait = SaveTrace.phase("quit.wait_for_computation");
+        }
+        deferredQuitTimer = new javax.swing.Timer(100, event -> {
+            if (PersistenceUiBoundary.computationDialog() != null) return;
+            deferredQuitTimer.stop(); deferredQuitTimer = null;
+            deferredQuitDialog.setTitle(deferredQuitTitle); deferredQuitDialog = null;
+            deferredQuitWait.close(); deferredQuitWait = null;
+            MacOSApplication.QuitRequest nextRequest = deferredQuitRequest;
+            SaveTrace.Trace nextTrace = deferredQuitTrace;
+            deferredQuitRequest = null; deferredQuitTrace = null;
+            requestQuit(nextRequest, nextTrace);
+        });
+        deferredQuitTimer.start();
+    }
+
+    /** Called after complete user events, not paint/repaint or clock timer callbacks. */
+    void afterPersistenceEvent(java.awt.AWTEvent event) {
+        if (sessionPersistence == null || quitInProgress) return;
+        boolean changed = event instanceof java.awt.event.KeyEvent
+                || event instanceof java.awt.event.MouseWheelEvent
+                || event instanceof java.awt.event.ActionEvent;
+        if (event instanceof java.awt.event.MouseEvent) {
+            int id = event.getID();
+            changed |= id == java.awt.event.MouseEvent.MOUSE_PRESSED
+                    || id == java.awt.event.MouseEvent.MOUSE_RELEASED
+                    || id == java.awt.event.MouseEvent.MOUSE_DRAGGED;
+        }
+        if (!changed) return;
+        sessionPersistence.changed();
+        Object source = event.getSource();
+        boolean preferenceEvent = event instanceof java.awt.event.KeyEvent || event instanceof java.awt.event.ActionEvent
+                || (event instanceof java.awt.event.MouseEvent && event.getID() == java.awt.event.MouseEvent.MOUSE_RELEASED);
+        if (source instanceof java.awt.Component) {
+            java.awt.Component component = (java.awt.Component) source;
+            preferenceEvent |= component instanceof javax.swing.AbstractButton
+                    || component instanceof javax.swing.JComboBox
+                    || SwingUtilities.isDescendingFrom(component, jToolBar1)
+                    || component instanceof javax.swing.plaf.basic.BasicSplitPaneDivider;
+        }
+        if (preferenceEvent) { saveWindowStateInOptions(); SettingsPersistence.requestSave(); }
+    }
+
+    void closePersistence() {
+        if (deferredQuitTimer != null) {
+            deferredQuitTimer.stop(); deferredQuitTimer = null;
+            if (deferredQuitRequest != null) deferredQuitRequest.cancel();
+            if (deferredQuitDialog != null) deferredQuitDialog.setTitle(deferredQuitTitle);
+            if (deferredQuitWait != null) deferredQuitWait.close();
+            if (deferredQuitTrace != null) deferredQuitTrace.end("cancelled", "window_disposed");
+            deferredQuitRequest = null; deferredQuitTrace = null; deferredQuitDialog = null; deferredQuitWait = null;
+        }
+        if (sessionPersistence != null) sessionPersistence.close();
+        SettingsPersistence.suspend();
+    }
+
+    private void refreshBackgroundSaveStatus() {
+        boolean failed = (sessionPersistence != null && sessionPersistence.failure() != null)
+                || SettingsPersistence.getBackgroundFailure() != null;
+        backgroundSaveStatus.setVisible(failed); statusLinePanel.revalidate(); statusLinePanel.repaint();
+    }
+    private void showBackgroundSaveFailure() {
+        IOException detail = new IOException(SaveFailure.text("backgroundFailed"));
+        if (sessionPersistence != null && sessionPersistence.failure() != null) detail.addSuppressed(sessionPersistence.failure());
+        if (SettingsPersistence.getBackgroundFailure() != null) detail.addSuppressed(SettingsPersistence.getBackgroundFailure());
+        JOptionPane.showMessageDialog(this, SaveFailure.panel(SaveFailure.text("backgroundRetry"), detail),
+                SaveFailure.text("failed"), JOptionPane.WARNING_MESSAGE);
+    }
+
+    private void finishQuit() {
+        SaveTrace.exiting(pendingNativeQuit!=null?"native_response":"System.exit");
+        if (pendingNativeQuit != null) {
+            try(SaveTrace.Span response=SaveTrace.phase("quit.native_response")){
+                try{pendingNativeQuit.perform();}catch(RuntimeException|Error e){response.fail(e);SaveTrace.abandonExit("exit_request_failed");throw e;}
+            }
+        } else System.exit(0);
+    }
 
 	private int showQuitFailureDialog(IOException failure) {
 		ResourceBundle bundle = ResourceBundle.getBundle("intl/MainFrame");
 		Object[] options = { bundle.getString("MainFrame.quitSaveFailure.retry"),
 				bundle.getString("MainFrame.quitSaveFailure.cancel"),
 				bundle.getString("MainFrame.quitSaveFailure.quitAnyway") };
-		JOptionPane pane = new JOptionPane(bundle.getString("MainFrame.quitSaveFailure.message")
-				+ "\n" + failure.getMessage(), JOptionPane.ERROR_MESSAGE,
+		JOptionPane pane = new JOptionPane(SaveFailure.panel(bundle.getString("MainFrame.quitSaveFailure.message")
+                + "\n" + SaveFailure.text("kept"), failure), JOptionPane.ERROR_MESSAGE,
 				JOptionPane.DEFAULT_OPTION, null, options, options[0]);
 		quitFailureDialog = pane.createDialog(this, bundle.getString("MainFrame.quitSaveFailure.title"));
 		quitFailureDialog.setVisible(true);
@@ -3403,10 +3584,15 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		return 1;
 	}
 
-	private void saveApplicationState() throws IOException {
-        if (replayController != null) replayController.prepareQuit();
-		saveWindowStateInOptions();
-		SessionSnapshot snapshot = new SessionSnapshot();
+    private void saveApplicationState() throws IOException {
+        try { prepareApplicationSave().run((stage, percent) -> {}); }
+        catch (IOException failure) { throw failure; }
+        catch (Exception failure) { throw new IOException(SaveFailure.text("unexpected"), failure); }
+    }
+
+    /** Capture UI state on EDT, then write every independent component off EDT. */
+    private SessionSnapshot captureWorkSession() {
+        SessionSnapshot snapshot = new SessionSnapshot();
 		GuiState state = new GuiState(sudokuPanel, sudokuPanel.getSolver(), solutionPanel);
 		state.setIncludeAnnotations(true);
 		state.get(true);
@@ -3420,10 +3606,48 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		snapshot.setHistoryEligible(completionTransition.isEnabled());
 		snapshot.setCompletionRecorded(completionTransition.isCompletedRecorded());
 		snapshot.setPreviouslySolved(completionTransition.wasPreviouslySolved());
-		sessionStore.save(snapshot);
-		Options.getInstance().writeOptionsSafely();
-        if (replayController != null) replayController.completeQuit();
-	}
+        if (replayController != null) {
+            snapshot.setReplayId(replayController.session().id);
+            snapshot.setReplayFrameCount(replayController.session().frameCount());
+            snapshot.setReplayElapsedMillis(replayController.session().elapsedMillis);
+        }
+        return SessionSnapshots.detached(snapshot);
+    }
+
+    private SaveProgress.Work prepareApplicationSave() {
+        if (sessionPersistence != null) sessionPersistence.suspend();
+        SettingsPersistence.suspend();
+        final SaveProgress.Work replaySave = replayController == null ? progress -> {} : replayController.prepareQuitSave();
+        saveWindowStateInOptions();
+        final SessionPersistence.Pending snapshot = sessionPersistence.captureNow();
+        final SettingsPersistence.Snapshot options = SettingsPersistence.capture(Options.getInstance());
+        return progress -> {
+            List<String> completed = new ArrayList<String>();
+            IOException failures = new IOException(SaveFailure.text("partial"));
+            boolean replaySaved = true;
+            progress.update(SaveFailure.text("replay"), 10);
+            try { SaveTrace.checked("quit.replay",null,()->replaySave.run(progress)); completed.add(SaveFailure.text("replay")); }
+            catch (Exception failure) { replaySaved = false; failures.addSuppressed(failure); }
+            final boolean requireElapsed = !replaySaved;
+            progress.update(SaveFailure.text("session"), 40);
+            try { SaveTrace.checked("quit.session",ApplicationPaths.getSessionFile().toPath(),()->sessionPersistence.commit(snapshot, requireElapsed)); completed.add(SaveFailure.text("session")); }
+            catch (Exception failure) { failures.addSuppressed(new SaveFailure(SaveFailure.text("session"), ApplicationPaths.getSessionFile().toPath(), failure)); }
+            progress.update(SaveFailure.text("options"), 75);
+            try { SaveTrace.checked("quit.settings",ApplicationPaths.getConfigurationFile().toPath(),()->options.saveDefault()); completed.add(SaveFailure.text("options")); }
+            catch (Exception failure) { failures.addSuppressed(new SaveFailure(SaveFailure.text("options"), ApplicationPaths.getConfigurationFile().toPath(), failure)); }
+            if (failures.getSuppressed().length == 0 && replayController != null) {
+                progress.update(SaveFailure.text("checkpoint"), 95);
+                try { SaveTrace.checked("quit.clean_checkpoint",null,()->replayController.completeQuit()); }
+                catch (Exception failure) { failures.addSuppressed(failure); }
+            }
+            if (failures.getSuppressed().length != 0) {
+                IOException result = new IOException(SaveFailure.text("partial") + "\n" + SaveFailure.text("completed") + ": " + String.join(", ", completed));
+                for (Throwable failure : failures.getSuppressed()) result.addSuppressed(failure);
+                throw result;
+            }
+            progress.update(SaveFailure.text("done"), 100);
+        };
+    }
 
 	private void restoreLastSession() {
 		if (!sessionStore.exists()) {
@@ -3433,6 +3657,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 		}
 		try {
 			SessionSnapshot snapshot = sessionStore.load();
+            restoredNativeSession = snapshot;
 			Options.getInstance().initializeAnnotationPalettePreferences(
 					snapshot.getPrimaryColor(), snapshot.getSecondaryColor());
 			int savedLevel = snapshot.getCompletedLevel();
@@ -3478,6 +3703,49 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			sessionRestoreInProgress = false;
 		}
 	}
+
+    SessionSnapshot recoverableNativeSession(ReplaySession replay) {
+        SessionSnapshot saved = restoredNativeSession;
+        if (saved == null || saved.isCompleted() || !saved.getReplayId().equals(replay.id)
+                || saved.getReplayFrameCount() < replay.frameCount()) return null;
+        // Annotation/history/savepoint edits do not necessarily add replay frames. An
+        // equal-count native commit is authoritative only for this exact board, including
+        // candidates and givens; equal clues alone do not prove the same saved state.
+        if (saved.getReplayFrameCount() == replay.frameCount()
+                && (saved.getGuiState() == null || saved.getGuiState().getSudoku() == null
+                || !replay.last().board.equals(new ReplayBoard(saved.getGuiState().getSudoku()))
+                || !replay.last().board.equals(new ReplayBoard(sudokuPanel.getSudoku())))) return null;
+        return saved;
+    }
+
+    /** Bookmarks can become durable after an equal-frame idle native commit. Keep
+     * its full savepoints and add missing replay-owned positions without replacing
+     * their richer native history/annotations or collapsing repeated names. */
+    void mergeRecoveredReplaySavePoints(ReplaySession replay) {
+        boolean[] matched = new boolean[savePoints.size()];
+        List<ReplayFrame> frames = replay.frames();
+        Sudoku2 definition = sudokuPanel.getSudoku();
+        ReplayBoard live = new ReplayBoard(definition);
+        for (ReplayBookmark marker : replay.bookmarks()) {
+            if (marker.frameIndex < 0 || marker.frameIndex >= frames.size()) continue;
+            ReplayBoard board = frames.get(marker.frameIndex).board;
+            if (!live.samePuzzle(board)) continue;
+            boolean represented = false;
+            for (int index = 0; index < matched.length; index++) {
+                GuiState point = savePoints.get(index);
+                if (!matched[index] && point != null && point.getSudoku() != null
+                        && marker.name.equals(point.getName())
+                        && board.equals(new ReplayBoard(point.getSudoku()))) {
+                    matched[index] = true; represented = true; break;
+                }
+            }
+            if (!represented) {
+                GuiState point = recoveredReplayState(board, definition);
+                point.setName(marker.name); point.setTimestamp(new Date(marker.wallTimeMillis));
+                savePoints.add(point);
+            }
+        }
+    }
 
     /** Reconcile an abnormal replay recovery as one complete attempt, without puzzle import. */
     /** Preserve live native state if a branch installation fails before commit. */
@@ -3549,6 +3817,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	}
 
 	void sudokuStateChanged() {
+        if (sessionPersistence != null && !sessionRestoreInProgress) sessionPersistence.changed();
         clearPendingChainPaste();
 		sudokuPanel.observeBoardChange();
 		sudokuPanel.reasoningBoardChanged();
@@ -3893,7 +4162,9 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			savePoints.add(state);
 			if (replayController != null) {
 				replayController.createSavePointMarker(name);
-				replayController.showRetentionFailure(ReplayText.text("savePointSaved"));
+                try { SaveProgress.run(this, false, () -> progress -> replayController.flushPendingSavesForWorker()); }
+                catch (IOException failure) { JOptionPane.showMessageDialog(this,
+                        SaveFailure.panel(ReplayText.text("savePointSaved"), failure), SaveFailure.text("failed"), JOptionPane.WARNING_MESSAGE); }
 			}
 		}
 	}
@@ -4097,16 +4368,71 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
             button.getAccessibleContext().setAccessibleName(bundle.getString("MainFrame.hypothesis." + keys[i]));
             FlatToolButtonUI.install(button); toolGroup.add(button);
         }
+        doodleCircleReductionButton = new javax.swing.JButton(bundle.getString("MainFrame.hypothesis.adopt"));
+        doodleCircleReductionButton.setName("doodleCircleReduction");
+        doodleCircleReductionButton.setFocusable(false);
+        doodleCircleReductionButton.setMargin(new java.awt.Insets(2, 8, 2, 8));
+        doodleCircleReductionButton.setToolTipText(bundle.getString("MainFrame.hypothesis.adoptHint"));
+        doodleCircleReductionButton.getAccessibleContext().setAccessibleName(bundle.getString("MainFrame.hypothesis.adopt"));
+        doodleCircleReductionButton.addActionListener(event -> showDoodleCircleReductions());
+        FlatToolButtonUI.install(doodleCircleReductionButton); toolGroup.add(doodleCircleReductionButton);
         doodleHypothesisStateChanged();
+    }
+
+    private void showDoodleCircleReductions() {
+        java.util.List<DoodleDerivedBasis.CircleReduction> reductions = sudokuPanel.doodleCircleReductions();
+        int group = cellZoomPanel.getPaletteGroup();
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        for (DoodleDerivedBasis.CircleReduction reduction : reductions) {
+            java.util.Map<Integer,DoodleDerivedBasis.Evidence> choices = new java.util.LinkedHashMap<Integer,DoodleDerivedBasis.Evidence>();
+            for (DoodleDerivedBasis.Evidence evidence : reduction.getEvidence()) {
+                if (!evidence.usesBranchGroup(group)) continue;
+                DoodleDerivedBasis.Evidence previous = choices.get(evidence.getSourceGroup());
+                if (previous == null || Integer.bitCount(evidence.getBranchGroupMask()) < Integer.bitCount(previous.getBranchGroupMask()))
+                    choices.put(evidence.getSourceGroup(), evidence);
+            }
+            for (DoodleDerivedBasis.Evidence evidence : choices.values()) {
+                final String resultKey = reduction.getResult().key();
+                final int sourceGroup = evidence.getSourceGroup(), branchMask = evidence.getBranchGroupMask();
+                String text = ChainTextCodec.node(reduction.getResult()) + "  ("
+                        + (char)('A' + sourceGroup) + ": " + evidence.getSource().atoms().length
+                        + " → " + reduction.getResult().atoms().length + ")";
+                javax.swing.JMenuItem item = new javax.swing.JMenuItem(text);
+                item.setToolTipText(text);
+                item.addActionListener(event -> {
+                    if (!sudokuPanel.adoptDoodleCircleReduction(resultKey, sourceGroup, branchMask))
+                        java.awt.Toolkit.getDefaultToolkit().beep();
+                    doodleHypothesisStateChanged(); fixFocus();
+                });
+                menu.add(item);
+            }
+        }
+        if (menu.getComponentCount() == 1) ((javax.swing.JMenuItem)menu.getComponent(0)).doClick();
+        else if (menu.getComponentCount() > 1) menu.show(doodleCircleReductionButton, 0, doodleCircleReductionButton.getHeight());
+        else { doodleHypothesisStateChanged(); fixFocus(); }
     }
 
     /** P attributes occupy the existing mode-control group; G and mouse share their state. */
     public void doodleHypothesisStateChanged() {
         if (doodleHypothesisToolbar == null || sudokuPanel == null) return;
+        if (sudokuPanel.hasPendingChainTranscription()) updateCellSelectionStatus();
         boolean doodle = sudokuPanel.getAnnotationTool() == AnnotationTool.DOODLE;
         doodleHypothesisEntryButton.setVisible(doodle);
         doodleHypothesisCancelButton.setVisible(doodle);
         doodleHypothesisEntryButton.setSelected(sudokuPanel.isDoodleHypothesisEntryActive());
+        if (doodleCircleReductionButton != null) {
+            java.util.List<DoodleDerivedBasis.CircleReduction> reductions = sudokuPanel.doodleCircleReductions();
+            doodleCircleReductionButton.setVisible(doodle && !reductions.isEmpty());
+            if (!reductions.isEmpty()) {
+                DoodleDerivedBasis.CircleReduction reduction = reductions.get(0);
+                DoodleDerivedBasis.Evidence evidence = reduction.evidenceForGroup(cellZoomPanel.getPaletteGroup());
+                String label = ResourceBundle.getBundle("intl/MainFrame").getString("MainFrame.hypothesis.adopt")
+                        + "  " + evidence.getSource().atoms().length + " → " + reduction.getResult().atoms().length;
+                doodleCircleReductionButton.setText(label);
+                java.awt.Dimension size = new java.awt.Dimension(doodleCircleReductionButton.getPreferredSize().width, 38);
+                doodleCircleReductionButton.setMinimumSize(size); doodleCircleReductionButton.setMaximumSize(size);
+            }
+        }
         jToolBar1.revalidate(); jToolBar1.repaint();
     }
 
@@ -4215,13 +4541,14 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			} catch (Exception ex) {
 				JOptionPane.showMessageDialog(
 					this, 
-					ex.toString(),
+					SaveFailure.panel(SaveFailure.text("kept"), ex),
 					java.util.ResourceBundle.getBundle("intl/MainFrame").getString("MainFrame.error"),
 					JOptionPane.ERROR_MESSAGE
 				);
-				sudokuFileName = null;
 			}
-		}
+		} else {
+            saveToFile(true);
+        }
 	}
 
 	private void showColorKuMenuItemActionPerformed(java.awt.event.ActionEvent evt) {
@@ -5755,7 +6082,9 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	}
 
 	private void setWindowLayout(boolean reset) {
-		
+		boolean wasRestoring = restoringWindowLayout;
+		restoringWindowLayout = true;
+		try {
 		Options o = Options.getInstance();
 
 		if (reset) {
@@ -5768,14 +6097,15 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			o.setShowToolBar(Options.INITIAL_SHOW_TOOLBAR);
 		}
 
-		jToolBar1.setVisible(o.isShowToolBar());
-		hintPanel.setVisible(o.isShowHintPanel());
-
 		Rectangle screenBounds = getPreferredScreenBounds(o);
 
 		int width = o.getInitialWidth();
 		int height = o.getInitialHeight();
 		int horzDivLoc = o.getInitialHorzDividerLoc();
+		// Divider listeners can update Options during intermediate layout; retain the requested value.
+		int vertDivLoc = o.getInitialVertDividerLoc();
+		int displayMode = o.getInitialDisplayMode();
+		boolean showToolBar = o.isShowToolBar(), showHintPanel = o.isShowHintPanel();
 
 		if (screenBounds.height < height) {
 			height = screenBounds.height;
@@ -5791,8 +6121,10 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			width = screenBounds.width;
 		}
 		
+		jToolBar1.setVisible(showToolBar);
+		hintPanel.setVisible(showHintPanel);
 		setSize(width, height);
-		switch (o.getInitialDisplayMode()) {
+		switch (displayMode) {
 		case 0:
 			splitPanel.setRight(null);
 			sudokuOnlyMenuItem.setSelected(true);
@@ -5814,20 +6146,20 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 			setSplitPane(cellZoomPanel);
 			cellZoomMenuItem.setSelected(true);
 		}
-		if (o.getInitialVertDividerLoc() != -1) {
-			splitPanel.setDividerLocation(o.getInitialVertDividerLoc());
-		}
 		syncDisplayModeMenuSelection();
 
 		outerSplitPane.setDividerLocation(horzDivLoc);
 
-		// doesn't work at reset sometimes -> adjust in PropertyChangeListener
-		// doesn't work when going back from fullscreen mode either
-
 		outerSplitPaneInitialized = false;
-		resetHDivLocLoc = horzDivLoc;
-		resetHDivLocTicks = System.currentTimeMillis();
-		resetHDivLoc = true;
+		// Complete the enclosing layout now; later user changes are not restoration work.
+		validate();
+		if (vertDivLoc != -1) splitPanel.restoreDividerLocation(vertDivLoc);
+		} finally {
+			restoringWindowLayout = wasRestoring;
+			if (!restoringWindowLayout && !quitInProgress && sessionPersistence != null) {
+				saveWindowStateInOptions(); SettingsPersistence.requestSave();
+			}
+		}
 	}
 
 	private void resetResultPanels() {
@@ -6200,12 +6532,11 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 				
 				JOptionPane.showMessageDialog(
 					this, 
-					ex2.toString(),
+					SaveFailure.panel(SaveFailure.text("kept"), ex2),
 					java.util.ResourceBundle.getBundle("intl/MainFrame").getString("MainFrame.error"),
 					JOptionPane.ERROR_MESSAGE
 				);
 				
-				sudokuFileName = null;
 			}
 			
 			setTitleWithFile();
@@ -6225,111 +6556,82 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	 * @throws FileNotFoundException
 	 * @throws IOException
 	 */
-	private void saveToFile(boolean puzzle, String path, int filterType) throws FileNotFoundException, IOException {
-		
-		sudokuFileName = path;
-		
-		if (!puzzle) {
-			// Options
-			writeOptionsWithWindowState(path);
-		} else {
-
-			String newLine = System.getProperty("line.separator");
-			if (filterType == 1) {
-				
-				sudokuFileType = 1;
-				ZipOutputStream zOut = new ZipOutputStream(new FileOutputStream(path));
-				zOut.putNextEntry(new ZipEntry("SudokuData"));
-				XMLEncoder out = new XMLEncoder(zOut);
-                final Exception[] encodingFailure = new Exception[1];
-                out.setExceptionListener(error -> encodingFailure[0] = error);
-				out.writeObject(sudokuPanel.getSudoku());
-				out.writeObject(SudokuSolverFactory.getDefaultSolverInstance().getAnzSteps());
-				out.writeObject(SudokuSolverFactory.getDefaultSolverInstance().getSteps());
-				out.writeObject(solutionPanel.getTitels());
-				out.writeObject(solutionPanel.getTabSteps());
-				out.writeObject(savePoints);
-				out.close();
-				zOut.flush();
-				zOut.close();
-                if (encodingFailure[0] != null) throw new IOException("Unable to save Sudoku state", encodingFailure[0]);
-				
-			} else if (filterType == 9) {
-				
-				sudokuFileType = 9;
-				// SimpleSudoku format (see comment in loadFromFile())
-				PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(path)));
-				String clues = sudokuPanel.getSudokuString(ClipboardMode.CLUES_ONLY);
-				out.println(SudokuUtil.getSSFormatted(clues));
-				out.println();
-				// additionally set cells
-				Sudoku2 tmpSudoku = sudokuPanel.getSudoku();
-				for (int i = 0; i < Sudoku2.LENGTH; i++) {
-					if (tmpSudoku.getValue(i) != 0 && !tmpSudoku.isFixed(i)) {
-						out.printf("I%02d%d%n", i, tmpSudoku.getValue(i));
-					}
-				}
-				
-				// eliminated candidates
-				for (int i = 0; i < Sudoku2.LENGTH; i++) {
-					if (tmpSudoku.getValue(i) == 0) {
-						for (int j = 1; j <= Sudoku2.UNITS; j++) {
-							if (tmpSudoku.isValidValue(i, j) && !tmpSudoku.isCandidate(i, j)) {
-								out.printf("E%02d%03d%n", i, j);
-							}
-						}
-					}
-				}
-				
-				out.close();
-                if (out.checkError()) throw new IOException("Unable to save Sudoku text file");
-				
-			} else {
-				
-				sudokuFileType = 8;
-				if (filterType == 8) {
-					// generic text file: can occur when save is executed
-					filterType = 6;
-				}
-				
-				BufferedWriter out = new BufferedWriter(new FileWriter(path));
-				String line = "";
-				switch (filterType) {
-				case 2:
-					line = sudokuPanel.getSudokuString(ClipboardMode.CLUES_ONLY);
-					break;
-				case 3:
-					line = sudokuPanel.getSudokuString(ClipboardMode.CLUES_ONLY_FORMATTED);
-					break;
-				case 4:
-					line = sudokuPanel.getSudokuString(ClipboardMode.PM_GRID);
-					break;
-				case 5:
-					line = sudokuPanel.getSudokuString(ClipboardMode.PM_GRID_WITH_STEP);
-					break;
-				case 6:
-					line = sudokuPanel.getSudokuString(ClipboardMode.CLUES_ONLY_FORMATTED);
-					line += newLine;
-					line += newLine;
-					line += sudokuPanel.getSudokuString(ClipboardMode.VALUES_ONLY_FORMATTED);
-					line += newLine;
-					line += newLine;
-					line += sudokuPanel.getSudokuString(ClipboardMode.PM_GRID);
-					break;
-				case 7:
-					line = sudokuPanel.getSudokuString(ClipboardMode.LIBRARY);
-					break;
-				}
-				
-				out.write(line);
-				out.close();
-			}
-            if (replayController != null) {
-                replayController.retainCurrent();
-                replayController.showRetentionFailure(ReplayText.text("puzzleSaved"));
+    private void saveToFile(boolean puzzle, String path, int filterType) throws IOException {
+        try(SaveTrace.Operation operation=SaveTrace.operation(puzzle?"puzzle_save":"settings_save")) {
+        try {
+        final IOException[] replayFailure = {null};
+        final int savedType = filterType == 1 ? 1 : filterType == 9 ? 9 : 8;
+        SaveProgress.run(this, false, () -> {
+            saveWindowStateInOptions();
+            final SettingsPersistence.Snapshot options = puzzle ? null : SettingsPersistence.capture(Options.getInstance());
+            Object[] state = null;
+            String text = null;
+            if (puzzle && filterType == 1) {
+                GuiState snapshot = new GuiState(sudokuPanel, sudokuPanel.getSolver(), solutionPanel);
+                snapshot.get(true);
+                state = new Object[]{snapshot.getSudoku(), snapshot.getAnzSteps(), snapshot.getSteps(),
+                        snapshot.getTitels(), snapshot.getTabSteps(), new ArrayList<GuiState>(savePoints)};
+            } else if (puzzle && filterType == 9) {
+                StringBuilder output = new StringBuilder(SudokuUtil.getSSFormatted(sudokuPanel.getSudokuString(ClipboardMode.CLUES_ONLY))).append("\n\n");
+                Sudoku2 board = sudokuPanel.getSudoku();
+                for (int i = 0; i < Sudoku2.LENGTH; i++) {
+                    if (board.getValue(i) != 0 && !board.isFixed(i)) output.append(String.format("I%02d%d%n", i, board.getValue(i)));
+                    if (board.getValue(i) == 0) for (int j = 1; j <= Sudoku2.UNITS; j++)
+                        if (board.isValidValue(i, j) && !board.isCandidate(i, j)) output.append(String.format("E%02d%03d%n", i, j));
+                }
+                text = output.toString();
+            } else if (puzzle) {
+                int type = filterType == 8 ? 6 : filterType;
+                switch (type) {
+                case 2: text = sudokuPanel.getSudokuString(ClipboardMode.CLUES_ONLY); break;
+                case 3: text = sudokuPanel.getSudokuString(ClipboardMode.CLUES_ONLY_FORMATTED); break;
+                case 4: text = sudokuPanel.getSudokuString(ClipboardMode.PM_GRID); break;
+                case 5: text = sudokuPanel.getSudokuString(ClipboardMode.PM_GRID_WITH_STEP); break;
+                case 6: text = sudokuPanel.getSudokuString(ClipboardMode.CLUES_ONLY_FORMATTED) + "\n\n"
+                        + sudokuPanel.getSudokuString(ClipboardMode.VALUES_ONLY_FORMATTED) + "\n\n"
+                        + sudokuPanel.getSudokuString(ClipboardMode.PM_GRID); break;
+                case 7: text = sudokuPanel.getSudokuString(ClipboardMode.LIBRARY); break;
+                default: throw new IOException("Unsupported Sudoku file type: " + type);
+                }
             }
-		}
-	}
+            final Object[] capturedState = state;
+            final String capturedText = text;
+            return progress -> {
+                progress.update(SaveFailure.text(puzzle ? "puzzle" : "options"), 20);
+                try {
+                    if (puzzle) PuzzleFileStore.write(new File(path), capturedState, capturedText);
+                    else options.saveTo(new File(path));
+                } catch (Exception failure) {
+                    throw new SaveFailure(SaveFailure.text(puzzle ? "puzzle" : "options"), Paths.get(path), failure);
+                }
+                if (puzzle && replayController != null) {
+                    progress.update(SaveFailure.text("replay"), 80);
+                    final SaveTrace.Context context=SaveTrace.capture();
+                    try(SaveTrace.Span capture=SaveTrace.phase("save.replay_capture_wait")){
+                        SwingUtilities.invokeAndWait(()->{try(SaveTrace.Scope scope=SaveTrace.bind(context)){replayController.retainCurrentForSave();}});
+                    }
+                    try { SaveTrace.io("save.replay",null,replayController::flushPendingSavesForWorker); }
+                    catch (IOException failure) { replayFailure[0] = failure; }
+                }
+                progress.update(SaveFailure.text("done"), 100);
+            };
+        });
+        if (puzzle) {
+            sudokuFileName = path;
+            sudokuFileType = savedType;
+            if (replayFailure[0] != null) {
+                operation.outcome("partial_failure");
+                try(SaveTrace.Span warning=SaveTrace.phase("save.partial_failure_dialog_wait")){
+                    JOptionPane.showMessageDialog(this,
+                            SaveFailure.panel(SaveFailure.text("puzzleSavedReplayFailed"), replayFailure[0]),
+                            SaveFailure.text("failed"), JOptionPane.WARNING_MESSAGE);
+                }
+            }
+        }
+        setTitleWithFile();
+        }catch(IOException|RuntimeException|Error failure){operation.outcome("failed");throw failure;}
+        }
+    }
 
 	/**
 	 * Loads puzzles and/or configurations from files. loading either type resets
@@ -6687,7 +6989,7 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 
 	private void setTitleWithFile() {
 		
-		savePuzzleMenuItem.setEnabled(sudokuFileName != null);
+		savePuzzleMenuItem.setEnabled(true);
 		if (sudokuFileName == null) {
 			setTitle(VERSION);
 		} else {
@@ -6738,7 +7040,11 @@ public class MainFrame extends javax.swing.JFrame implements FlavorListener {
 	}
 
 	public final void check() {
+        if (sessionPersistence != null && !sessionRestoreInProgress) {
+            sessionPersistence.changed(); SettingsPersistence.requestSave();
+        }
         updateCellSelectionStatus();
+        doodleHypothesisStateChanged();
 		
 		if (sudokuPanel != null) {
 			refreshAnnotationUndoControls();

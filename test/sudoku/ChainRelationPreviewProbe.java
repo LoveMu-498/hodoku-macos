@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 import java.awt.*;
 import java.awt.event.*;
@@ -20,6 +22,7 @@ public final class ChainRelationPreviewProbe {
   click(1,0,ChainOriginProbe.candidate(0,1));
  }
  public static void main(String[] args)throws Exception {
+  final boolean listenersOnly=args.length==1&&"--listeners-only".equals(args[0]);
   try {edt(()->{
    ApplicationAppearance.initialize(AppearanceMode.LIGHT);f=new MainFrame(null);p=f.getSudokuPanel();
    reset();String before=TechniqueStepCatalog.createSignature(p.getSudoku());
@@ -58,14 +61,17 @@ public final class ChainRelationPreviewProbe {
    check(p.chainPreviewRelation(node(1,1))==0,"intermediate node allowed");
    preview(true);p.setNextUserChainStrong(false);click(1,0,ChainOriginProbe.candidate(0,1));
    check(active().isClosed()&&p.chainPreviewRelation(node(2,1))==0,"closed chain targets");
-   reset();f.setVisible(true);f.toFront();p.requestFocusInWindow();
+   reset();if(!listenersOnly){f.setVisible(true);f.toFront();p.requestFocusInWindow();}
    System.out.println("PASS: relation scope, rendering, weak-to-strong gate, manual Space/weak/strong, tail, release, focus, Escape, tool scope, unchanged board");return null;
   });
+   if(listenersOnly)System.out.println("SCOPE: Swing listeners/rendering only; native middle press/release requires separate UI verification");
+   else {
    Robot robot=new Robot();robot.setAutoDelay(100);robot.waitForIdle();
    Point target=edt(()->{Point q=p.getLocationOnScreen();q.translate(100,100);return q;});robot.mouseMove(target.x,target.y);
    robot.mousePress(InputEvent.BUTTON2_DOWN_MASK);robot.waitForIdle();edt(()->{check((Boolean)read("chainRelationPreviewHeld"),"native middle press");return null;});
    robot.mouseRelease(InputEvent.BUTTON2_DOWN_MASK);robot.waitForIdle();edt(()->{check(!(Boolean)read("chainRelationPreviewHeld"),"native middle release");return null;});
    System.out.println("PASS: native Robot middle press/release through MainFrame dispatcher");
+   }
   }catch(Throwable t){t.printStackTrace();System.exit(1);}finally{if(f!=null)edt(()->{f.dispose();return null;});}System.exit(0);
  }
 }

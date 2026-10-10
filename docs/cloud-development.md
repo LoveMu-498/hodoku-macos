@@ -1,6 +1,6 @@
 # 云端开发与本地衔接
 
-维护日期：2026-10-01。公开仓库：<https://github.com/LoveMu-498/hodoku-macos>。
+维护日期：2026-10-10。公开仓库：<https://github.com/LoveMu-498/hodoku-macos>。
 云端以这个仓库的源码与 Git 历史为基础；本地未提交的修改不会自动出现在云端。
 这份配置用于开发与验证，不推进应用版本，不生成 DMG，也不替换用户的已安装应用。
 
@@ -10,6 +10,8 @@ Linux + JDK 21 编译全部 Java 源码与测试，使用 `--release 8` 保持�
 构建包含界面资源与 COPYING 的独立开发 JAR；每个测试进程使用独立 home/data/tmp。
 `core` 检查求解/链结构、解析、保存和回放；`swing` 在 Xvfb 虚拟屏幕运行选定的
 窗口、标注、圈叉、回放查看器回归。具体清单以 `script/check_cloud.py` 为准。
+保存回归包含空闲写入、摘要、v2 紧凑编码、长文本和同帧数异常重启恢复；Python telemetry
+检查覆盖数据采集的失败门禁与探针隔离。性能解释见 [保存分析](save-performance.md)。
 该清单不是全部测试；修改其他功能时仍须补跑相应已有 probe。
 `ImmediateMappedClickProbe` 在宿主 AWT 初始化后选择 macOS 修饰键语义，检验本项目 T/P/L
 功能的事件处理；这属于 Linux Swing 上的功能测试，不是 Linux 完整交互支持或真实 Mac 输入。
@@ -64,6 +66,7 @@ xvfb-run -a python3 script/check_cloud.py --profile swing --only ImmediateMapped
 
 python3 -m unittest discover -s test/packaging -p test_distribution_sources.py
 python3 -m unittest discover -s test/packaging -p test_public_privacy.py
+python3 -m unittest discover -s test/telemetry -p 'test_*.py'
 ```
 
 结果在每次独立的 `build/cloud/<run>/reports/results.json` 和对应日志中；JAR 在同一运行目录。
@@ -99,6 +102,8 @@ CI 控制台记录通过/失败；失败时提供隔离 fixture 的错误摘要�
    也不能强制 reset、stash 或用公开整树覆盖。完成验证后记录已纳入的 PR/commit。
 
 本地同步和 PR 合并权限均按当次用户要求判断，不把环境设置、一次发布或已有凭据当成永久授权。
+尚未合并的迭代须在新云端任务中选择对应 PR 分支；默认 main 不会因 PR 创建而改变。
+已有运行任务也不会自动切换到新提交，先核对分支和 SHA 再开发。
 云端只接收公开源码、合成 fixture 和必要文档；`.env`、访问令牌、AI key、个人设置/回放、
 内部记录和备份均排除。继承的 GPL-3.0-or-later 和第三方归属保持不变，见
 [UPSTREAM.md](../UPSTREAM.md)、[许可说明](../THIRD_PARTY_NOTICES.md) 与 [发布约定](open-source-release.md)。

@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.*;
@@ -12,6 +14,7 @@ final class ToolbarColorPalette extends JPanel {
     private final JButton clearAll;
     private final JButton modeState;
     private final JToggleButton freeEraser;
+    private final JToggleButton eraseStrategy;
     private final JButton boxStatistics;
     private final JToggleButton[] groups = new JToggleButton[6];
 
@@ -50,6 +53,19 @@ final class ToolbarColorPalette extends JPanel {
             }
         });
         add(modeState);
+        eraseStrategy = new JToggleButton(ToolbarIcons.doodleErasure());
+        eraseStrategy.setDisabledIcon(eraseStrategy.getIcon());
+        eraseStrategy.setFocusable(false);
+        eraseStrategy.setPreferredSize(new Dimension(38, 38));
+        eraseStrategy.setMargin(new Insets(2, 2, 2, 2));
+        FlatToolButtonUI.install(eraseStrategy);
+        eraseStrategy.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        eraseStrategy.addActionListener(e -> {
+            SudokuPanel board = owner.annotationBoard();
+            if (board != null) board.setDoodleWholeStrokeEraser(eraseStrategy.isSelected());
+            refresh();
+        });
+        add(eraseStrategy);
         freeEraser=new JToggleButton(java.util.ResourceBundle.getBundle("intl/CellZoomPanel").getString("CellZoomPanel.doodleEraser.text"));
         freeEraser.setFocusable(false);
         freeEraser.setToolTipText("左键连续擦除；右拖框擦。再次点击返回画笔");
@@ -137,6 +153,13 @@ final class ToolbarColorPalette extends JPanel {
                 : erasing ? "涂鸦橡皮擦：直径 " + eraserDiameter(board) + "% 棋盘短边（右键轨迹擦除时滚轮连续调整；右键双击并按住第二下拖框删除）"
                 : owner.isDoodle() && board != null ? "涂鸦粗细：" + (board.getDoodleWidthIndex() + 1) + " / 4（点击循环；Command+滚轮或 < / > 调整）"
                 : "当前模式无附加笔触状态";
+        java.util.ResourceBundle labels = java.util.ResourceBundle.getBundle("intl/CellZoomPanel");
+        boolean whole = board != null && board.isDoodleWholeStrokeEraser();
+        eraseStrategy.setVisible(owner.isDoodle());
+        eraseStrategy.setSelected(whole);
+        eraseStrategy.setEnabled(owner.isDoodle() && board != null && !erasing);
+        String eraseHint = labels.getString(whole ? "CellZoomPanel.eraseWhole.hint" : "CellZoomPanel.eraseRange.hint");
+        eraseStrategy.setToolTipText(eraseHint); eraseStrategy.getAccessibleContext().setAccessibleName(eraseHint);
         modeState.setEnabled(owner.isDoodle() && !erasing);
         modeState.setToolTipText(state);
         modeState.getAccessibleContext().setAccessibleName(state);

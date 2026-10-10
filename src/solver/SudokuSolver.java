@@ -17,6 +17,7 @@
  * along with HoDoKu. If not, see <http://www.gnu.org/licenses/>.
  */
 
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package solver;
 
 import java.io.BufferedWriter;
@@ -309,8 +310,7 @@ public class SudokuSolver {
 			// avoid exceptions
 			delta = 1;
 		}
-		boolean oldCheckTemplates = Options.getInstance().isCheckTemplates();
-		Options.getInstance().setCheckTemplates(false);
+		try (Options.TemplateCheckScope ignored = Options.withTemplateChecks(false)) {
 		long nanos = System.nanoTime();
 		Sudoku2 workingSudoku = tmpSudoku.clone();
 		for (int i = 0; i < stepsTocheck.size(); i++) {
@@ -321,9 +321,9 @@ public class SudokuSolver {
 				dlg.updateFishProgressBar(i);
 			}
 		}
-		Options.getInstance().setCheckTemplates(oldCheckTemplates);
 		workingSudoku = null;
 		nanos = System.nanoTime() - nanos;
+		}
 //        System.out.println("getProgressScore(): " + (nanos / 1000000) + "ms (" + steps.size() + ")");
 //        for (SolutionStep step : steps) {
 //            System.out.println("progressScore: " + step.getProgressScoreSinglesOnly() + "/" +

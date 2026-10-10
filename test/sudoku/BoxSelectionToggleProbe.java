@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.Point;
@@ -55,7 +57,7 @@ public final class BoxSelectionToggleProbe {
                 event(MouseEvent.MOUSE_DRAGGED,cell(10),0,InputEvent.BUTTON1_DOWN_MASK);
                 Method predicted = SudokuPanel.class.getDeclaredMethod("isBoxReasoningCellPredicted",int.class,int.class);
                 predicted.setAccessible(true);
-                require((Boolean)predicted.invoke(panel,0,0) && (Boolean)predicted.invoke(panel,1,10), "preview must preserve existing group");
+                require((Boolean)predicted.invoke(panel,0,0) && !(Boolean)predicted.invoke(panel,1,10), "drag contour must preserve committed groups until release");
                 event(MouseEvent.MOUSE_RELEASED,cell(10),1,0);
                 require(panel.getBoxReasoningFootprint().contains(0) && panel.getBoxReasoningGroupsSnapshot().get(1).size()==4, "mixed rectangle addition");
                 history("undoBoxReasoning");
