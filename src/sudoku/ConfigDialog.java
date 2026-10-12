@@ -17,12 +17,13 @@
  * along with HoDoKu. If not, see <http://www.gnu.org/licenses/>.
  */
 
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.BorderLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
-import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.text.MessageFormat;
 import javax.swing.AbstractAction;
 import javax.swing.Action;
@@ -228,12 +229,12 @@ public class ConfigDialog extends javax.swing.JDialog {
 		myConfigGeneratorPanel.okPressed();
 		myConfigColorkuPanel.okPressed();
 		try {
-			Options.getInstance().writeOptions();
-		} catch (FileNotFoundException ex) {
+			SettingsPersistence.saveConfirmed(this);
+		} catch (IOException ex) {
 			MessageFormat formatter = new MessageFormat(
 					java.util.ResourceBundle.getBundle("intl/MainFrame").getString("MainFrame.invalid_filename"));
 			String msg = formatter.format(new Object[] { ex.getLocalizedMessage() });
-			JOptionPane.showMessageDialog(this, msg,
+			JOptionPane.showMessageDialog(this, SaveFailure.panel(msg, ex),
 					java.util.ResourceBundle.getBundle("intl/ConfigDialog").getString("ConfigDialog.error"),
 					JOptionPane.ERROR_MESSAGE);
 		}

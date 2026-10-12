@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.util.*;
@@ -176,6 +178,40 @@ final class UserChainValidator {
             if(!placed&&count>0&&complete)return true;
         }
         return false;
+    }
+
+    /** Batch the singleton half of ordinaryStrong for a preview frame. The
+     * complete cell/house coverage rule is unchanged; no solver is enumerated. */
+    static Set<Integer> ordinaryStrongSingleTargets(Sudoku2 board, UserChainNode origin) {
+        Set<Integer> result = new HashSet<Integer>();
+        boolean[] covered = new boolean[810];
+        for (int atom : origin.atoms()) covered[atom] = true;
+        boolean all = false;
+        for (int cell = 0; cell < 81; cell++) if (board.getValue(cell) == 0) {
+            int count = 0, missing = 0, last = 0;
+            for (int digit : board.getAllCandidates(cell)) {
+                count++;
+                if (!covered[cell * 10 + digit]) { missing++; last = cell * 10 + digit; }
+            }
+            if (count > 0 && missing == 0) all = true;
+            else if (count > 0 && missing == 1) result.add(last);
+        }
+        for (int[] unit : Sudoku2.ALL_UNITS) for (int digit = 1; digit <= 9; digit++) {
+            int count = 0, missing = 0, last = 0;
+            boolean placed = false;
+            for (int cell : unit) {
+                if (board.getValue(cell) == digit) placed = true;
+                if (board.getValue(cell) == 0 && board.isCandidate(cell, digit)) {
+                    count++;
+                    if (!covered[cell * 10 + digit]) { missing++; last = cell * 10 + digit; }
+                }
+            }
+            if (!placed && count > 0 && missing == 0) all = true;
+            else if (!placed && count > 0 && missing == 1) result.add(last);
+        }
+        if (all) for (int cell = 0; cell < 81; cell++) if (board.getValue(cell) == 0)
+            for (int digit : board.getAllCandidates(cell)) result.add(cell * 10 + digit);
+        return result;
     }
 
     private static int unit(int cell, int kind) {

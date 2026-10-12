@@ -17,6 +17,7 @@
  * along with HoDoKu. If not, see <http://www.gnu.org/licenses/>.
  */
 
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.Component;
@@ -35,12 +36,19 @@ public class SplitPanel extends javax.swing.JPanel {
 	private SudokuPanel sudokuPanel;
 	@SuppressWarnings("unused")
 	private Component rightComponent;
+	private int restoredDividerLocation = -1;
+	private Dimension handledResizeSize;
 
 	/** Creates new form SplitPanel */
 	public SplitPanel() {
 		initComponents();
 		splitPane.getActionMap().getParent().remove("startResize");
 		splitPane.getActionMap().getParent().remove("toggleFocus");
+		addHierarchyListener(event -> {
+			if ((event.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
+				applyRestoredDividerLocation();
+			}
+		});
 	}
 
 	/**
@@ -74,6 +82,13 @@ public class SplitPanel extends javax.swing.JPanel {
 	}// </editor-fold>//GEN-END:initComponents
 
 	private void formComponentResized(java.awt.event.ComponentEvent evt) {// GEN-FIRST:event_formComponentResized
+		if (restoredDividerLocation >= 0) {
+			applyRestoredDividerLocation();
+			return;
+		}
+		Dimension size = getSize();
+		if (size.equals(handledResizeSize)) return;
+		handledResizeSize = size;
 		adjustDividerBar();
 	}// GEN-LAST:event_formComponentResized
 
@@ -106,6 +121,7 @@ public class SplitPanel extends javax.swing.JPanel {
 	}
 
 	public void setRight(Component newRightComponent) {
+		restoredDividerLocation = -1;
 		this.rightComponent = newRightComponent;
 		// splitPane.setRightComponent(new JScrollPane(rightComponent));
 		splitPane.setRightComponent(newRightComponent);
@@ -140,12 +156,42 @@ public class SplitPanel extends javax.swing.JPanel {
 		}
 	}
 
+    /** Track committed layout changes, including the first automatic layout. */
+    public void addDividerLocationListener(java.beans.PropertyChangeListener listener) {
+        splitPane.addPropertyChangeListener(javax.swing.JSplitPane.DIVIDER_LOCATION_PROPERTY, listener);
+    }
+
 	public int getDividerLocation() {
 		return splitPane.getDividerLocation();
 	}
 
 	public void setDividerLocation(int value) {
+		restoredDividerLocation = -1;
+		handledResizeSize = getSize();
 		splitPane.setDividerLocation(value);
+	}
+
+	/** Restore after the enclosing layout has its real dimensions, without a time-based grace period. */
+	public void restoreDividerLocation(int value) {
+		restoredDividerLocation = value;
+		splitPane.setDividerLocation(value);
+		java.awt.Container top = getTopLevelAncestor();
+		if (top != null) top.validate();
+		applyRestoredDividerLocation();
+	}
+
+	@Override public void doLayout() {
+		super.doLayout();
+		applyRestoredDividerLocation();
+	}
+
+	private void applyRestoredDividerLocation() {
+		if (restoredDividerLocation < 0 || !isShowing() || getWidth() <= 0 || getHeight() <= 0) return;
+		int location = restoredDividerLocation;
+		restoredDividerLocation = -1;
+		// Already queued resize events for these dimensions must not reapply the automatic square layout.
+		handledResizeSize = getSize();
+		splitPane.setDividerLocation(location);
 	}
 
 	/** Applies the screen-only dark surface to the internal split pane as well. */

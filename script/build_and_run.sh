@@ -154,47 +154,12 @@ build_app() {
     find "$SRC_DIR" -name '*.java' -print0 \
         | xargs -0 javac --release 8 -encoding UTF-8 -d "$CLASSES_DIR"
 
-    local bundle_names=()
-    local base_file
-    while IFS= read -r -d '' base_file; do
-        bundle_names+=("$(basename "$base_file" .properties)")
-    done < <(find "$SRC_DIR/intl" -maxdepth 1 -type f -name '*.properties' \
-        ! -name '*_de.properties' ! -name '*_zh.properties' -print0 | LC_ALL=C sort -z)
-
     mkdir -p "$TEST_CLASSES_DIR"
     find "$ROOT_DIR/test" -name '*.java' -print0 \
         | xargs -0 javac --release 8 -encoding UTF-8 -cp "$CLASSES_DIR:$SRC_DIR" -d "$TEST_CLASSES_DIR"
-    java -cp "$CLASSES_DIR:$TEST_CLASSES_DIR:$SRC_DIR" sudoku.LocaleShortcutProbe "${bundle_names[@]}"
-	local probe_tmp
-	probe_tmp="$(mktemp -d /tmp/hodoku-build-probes.XXXXXX)"
-	mkdir -p "$probe_tmp/data" "$probe_tmp/home" "$probe_tmp/tmp"
-	for probe in \
-		ApplicationPathsProbe \
-		AppearanceRenderingProbe \
-		BoxReasoningRenderingProbe \
-		ChainRouteGeometryProbe \
-		CompletionTransitionProbe \
-		SudokuReferenceParserProbe \
-		MainLaunchArgumentsProbe \
-		MacOSApplicationProbe \
-		NativeReasoningMatcherProbe \
-		CurrentReasoningProbe \
-		NativeReasoningLibraryProbe \
-		GroupedChainProbe \
-		GeneralizedChainProbe \
-		AlsManualChainProbe \
-		ChainTextCodecProbe \
-		OptionsPersistenceProbe \
-        PairedPaletteInvariantProbe \
-		PuzzleHistoryProbe \
-		SessionStoreProbe \
-		ToolbarIconRenderingProbe \
-		WindowLayoutProbe; do
-		java -Dhodoku.data.dir="$probe_tmp/data" -Duser.home="$probe_tmp/home" \
-			-Djava.io.tmpdir="$probe_tmp/tmp" \
-			-cp "$CLASSES_DIR:$TEST_CLASSES_DIR:$SRC_DIR" "sudoku.$probe"
-	done
-	rm -rf "$probe_tmp"
+    python3 "$ROOT_DIR/script/verify_release_features.py" \
+        --java "$selected_jdk/bin/java" --classpath "$CLASSES_DIR:$TEST_CLASSES_DIR:$SRC_DIR" \
+        --profile build --report-dir "$BUILD_DIR/probe-reports"
 
     cp -R "$SRC_DIR/intl" "$CLASSES_DIR/intl"
     cp -R "$SRC_DIR/img" "$CLASSES_DIR/img"
@@ -283,16 +248,9 @@ verify_app() {
 	}
 	trap cleanup_verify_app EXIT
 	mkdir -p "$gui_tmp/data" "$gui_tmp/home" "$gui_tmp/tmp"
-    java --add-exports=java.desktop/com.apple.laf=ALL-UNNAMED \
-		-Dhodoku.data.dir="$gui_tmp/data" -Djava.io.tmpdir="$gui_tmp/tmp" \
-		-Duser.home="$gui_tmp/home" -Duser.language=zh \
-        -cp "$CLASSES_DIR:$TEST_CLASSES_DIR:$SRC_DIR" sudoku.GuiLocalizationProbe
-	for gui_probe in ChainEdgeDeletionProbe AnnotationDeletionProbe AnnotationDeletionMouseProbe MissingCandidateDoubleClickProbe MissingCandidateMouseProbe ColoringInteractionProbe AnnotationInteractionProbe AnnotationPerformanceProbe SetAllSinglesInteractionProbe UserChainRenderingProbe ReasoningInteractionProbe CurrentReasoningInteractionProbe ToolbarChainStateProbe TechniqueSelectorProbe TechniqueSelectorNavigationProbe HintInteractionProbe KeyboardHelpDialogProbe PaletteStartupProbe SessionLifecycleProbe TransientReferenceHighlightProbe; do
-		java --add-exports=java.desktop/com.apple.laf=ALL-UNNAMED \
-			-Dhodoku.data.dir="$gui_tmp/data" -Djava.io.tmpdir="$gui_tmp/tmp" \
-			-Duser.home="$gui_tmp/home" -Duser.language=zh \
-			-cp "$CLASSES_DIR:$TEST_CLASSES_DIR:$SRC_DIR" "sudoku.$gui_probe"
-	done
+    python3 "$ROOT_DIR/script/verify_release_features.py" \
+        --app "$APP_BUNDLE" --test-classes "$TEST_CLASSES_DIR" \
+        --profile native --report-dir "$VERIFY_DIR/probe-reports"
 
 	JAVA_TOOL_OPTIONS="-Dhodoku.data.dir=$gui_tmp/data -Djava.io.tmpdir=$gui_tmp/tmp -Duser.home=$gui_tmp/home -Duser.language=zh" \
         "$APP_EXECUTABLE" /? > "$VERIFY_DIR/help.stdout" 2> "$VERIFY_DIR/help.stderr"

@@ -34,5 +34,7 @@ jobs:
         run: |
           python3 -m unittest discover -s test/packaging -p test_distribution_sources.py
           python3 -m unittest discover -s test/packaging -p test_public_privacy.py
+      - name: Save telemetry and collection runner regression checks
+        run: python3 -m unittest discover -s test/telemetry -p 'test_*.py'
       - name: Check tracked files remain unchanged
         run: git diff --exit-code

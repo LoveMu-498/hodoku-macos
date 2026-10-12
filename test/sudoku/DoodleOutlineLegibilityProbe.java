@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 import java.awt.*;import java.awt.image.*;import java.nio.file.*;import javax.imageio.ImageIO;
 import static sudoku.GroupedChainTransactionProbe.*;
@@ -13,14 +15,15 @@ public final class DoodleOutlineLegibilityProbe {
   for(int size:new int[]{630,1134,1620}){
    float previous=0;
    for(int level=0;level<4;level++){
-    p.clearDoodlesWithUndo();p.setSize(size,size);paint();while(p.getDoodleWidthIndex()!=level)p.cycleDoodleWidthByClick();
+    p.clearDoodlesWithUndo();p.setSize(size,size);BufferedImage bare=paint();while(p.getDoodleWidthIndex()!=level)p.cycleDoodleWidthByClick();
     mark(29,4,1,0);DoodleStroke source=find(29,4,1,0);
     float actual=(Float)width.invoke(p,source,size,size);check(actual>previous,"circle width did not increase: "+size+" level "+level);previous=actual;
     Shape path=(Shape)projected.invoke(p,source,size,size);Rectangle bounds=path.getBounds();
     BufferedImage start=paint();source.setHypothesisStart(false);BufferedImage ordinary=paint();source.setHypothesisStart(true);
     for(int y=bounds.y;y<=bounds.y+bounds.height;y++)for(int x=bounds.x;x<=bounds.x+bounds.width;x++)
      {
-      Color original=new Color(ordinary.getRGB(x,y));
+      Color original=new Color(bare.getRGB(x,y));
+      // Use the unannotated numeral mask: the new neutral separator is not a digit.
       if((ordinary.getRGB(x,y)&0xffffff)==0xff0000 || original.getRed()<125&&original.getGreen()<145&&original.getBlue()<170)
        check(start.getRGB(x,y)==ordinary.getRGB(x,y),"start cue changed original ink or numeral: "+size+" level "+level);
      }

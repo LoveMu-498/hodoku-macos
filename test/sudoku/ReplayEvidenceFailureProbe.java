@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 import java.nio.file.*;
 import java.util.*;
@@ -17,7 +19,7 @@ public final class ReplayEvidenceFailureProbe {
    unsupported.setIndices(new ArrayList<Integer>(original.getIndices()));unsupported.setValues(new ArrayList<Integer>(original.getValues()));
    ReplayBoard before=new ReplayBoard(p.getSudoku());p.setStep(unsupported);require(p.doStep(),"codec failure blocked native solve");require(!before.equals(new ReplayBoard(p.getSudoku())),"board did not change");
    require(c.session().frames().size()==2&&c.session().last().kind.equals("evidence-unavailable"),"must explicitly persist missing proof instead of claiming complete");
-   try{ReplaySession loaded=ReplayStore.read(c.directory().resolve(c.session().id+".hrep"));require(loaded.last().kind.equals("evidence-unavailable"),"failure not persisted");}catch(Exception e){throw new RuntimeException(e);}
+   try{c.flushPendingSaves();ReplaySession loaded=ReplayStore.read(c.directory().resolve(c.session().id+".hrep"));require(loaded.last().kind.equals("evidence-unavailable"),"failure not persisted");}catch(Exception e){throw new RuntimeException(e);}
   });}finally{if(owner[0]!=null)SwingUtilities.invokeAndWait(()->owner[0].dispose());}
   SudokuSet a=new SudokuSet(),b=new SudokuSet();a.add(0);a.add(1);b.add(9);b.add(10);
   UserChain c=GroupedChainProbe.chain(false,new UserChainNode[]{GroupedChainProbe.node(1,0,1),GroupedChainProbe.node(1,2)},true);c.setSourceId(42);

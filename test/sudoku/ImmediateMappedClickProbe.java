@@ -1,11 +1,12 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 import java.awt.*;import java.awt.event.*;import java.awt.image.*;import java.util.*;
 import static sudoku.GroupedChainTransactionProbe.*;
 import static sudoku.ChainEditingProbe.*;
 public final class ImmediateMappedClickProbe {
  static String platformName=System.getProperty("os.name");
- // These queued input events describe a fast double click. Their input timestamps
- // must not include time spent processing the first handler on a busy CI runner.
+ // These queued events describe rapid clicks; handler CPU time is not input time.
  static long inputWhen=System.currentTimeMillis();
  static void event(int id,int button,int mods,Point pt){inputWhen+=10;p.dispatchEvent(new MouseEvent(p,id,inputWhen,mods,pt.x,pt.y,1,false,button));}
  static void click(int button,int mods,Point pt){event(MouseEvent.MOUSE_PRESSED,button,mods,pt);event(MouseEvent.MOUSE_RELEASED,button,mods,pt);}
@@ -14,11 +15,11 @@ public final class ImmediateMappedClickProbe {
  static void mode(AnnotationTool t)throws Exception{p.flushMappedClick();p.setAnnotationTool(t);}
  public static void main(String[] args)throws Exception{System.setProperty("apple.awt.UIElement","true");try{edt(()->{
   f=new MainFrame(null);p=f.getSudokuPanel();p.setSudoku((String)null);p.getSudoku().set(GroupedChainProbe.blank());p.setShowCandidates(true);p.setSize(810,810);p.paint(new BufferedImage(810,810,1).getGraphics());Point a=ChainOriginProbe.candidate(0,1),b=ChainOriginProbe.candidate(12,1),c=ChainOriginProbe.candidate(24,1);
-  // AWT has initialized for the real host. From here exercise macOS modifier
-  // semantics only; this is functional Swing coverage, not native Mac input.
+  // Initialize real host AWT first, then exercise macOS modifier routing on Swing.
+  // This is functional coverage, not native macOS input on a Linux runner.
   System.setProperty("os.name","Mac OS X");
-  mode(AnnotationTool.FREE_CHAIN);long t=System.nanoTime();click(1,0,a);check(active()!=null&&active().getNodes().size()==1,"first node delayed");click(1,0,b);check(active().getNodes().size()==2,"edge delayed");System.out.printf("Immediate node + edge %.2fms%n",(System.nanoTime()-t)/1e6);p.flushMappedClick();
-  int undo=history("userChainUndoStack");click(1,0,c);check(active().getNodes().size()==3,"single not visible");click(1,0,c);check(active().getNodes().size()==2&&history("userChainUndoStack")==undo,"double left kept single edge/history");p.handleEscapeVisualReset();
+  mode(AnnotationTool.FREE_CHAIN);long t=System.nanoTime();click(1,0,a);check(active()!=null&&active().getNodes().size()==1,"first node delayed");p.flushMappedClick();click(1,0,b);check(active().getNodes().size()==2,"edge delayed");System.out.printf("Two settled immediate node inputs %.2fms%n",(System.nanoTime()-t)/1e6);p.flushMappedClick();
+  int undo=history("userChainUndoStack");click(1,0,c);check(active().getNodes().size()==3,"single not visible");click(1,0,c);check(active().getNodes().size()==2&&history("userChainUndoStack")==undo+1&&!active().getStrongRelations().get(0),"unconnected-target double did not replace the single with last-edge flip");p.undoCurrentAnnotation();check(active().getStrongRelations().get(0),"global flip undo");
   install(GroupedChainProbe.chain(false,new UserChainNode[]{GroupedChainProbe.node(1,0),GroupedChainProbe.node(1,12)},true));undo=history("userChainUndoStack");click(3,0,a);check(active().getNodes().size()==1,"right delete delayed");click(3,0,a);check(active().getNodes().size()==2&&history("userChainUndoStack")==undo,"right precise left deletion/history");check((Integer)read("preciseChainCandidate")==1,"right precise endpoint missing");call("clearPreciseChainGesture");
   click(3,0,a);event(MouseEvent.MOUSE_PRESSED,3,0,a);event(MouseEvent.MOUSE_DRAGGED,0,InputEvent.BUTTON3_DOWN_MASK,new Point(a.x+5,a.y+5));check(active().getNodes().size()==2,"second drag did not restore first delete");p.handleEscapeVisualReset();
   mode(AnnotationTool.CANDIDATE_COLORING);click(1,0,a);check(((Map<?,?>)read("coloringMap")).containsKey(0),"T cell delayed");click(1,0,a);check(!((Map<?,?>)read("coloringMap")).containsKey(0)&&((Map<?,?>)read("coloringCandidateMap")).containsKey(1),"T double leaked cell");p.undoCurrentAnnotation();check(((Map<?,?>)read("coloringCandidateMap")).isEmpty(),"T double undo");

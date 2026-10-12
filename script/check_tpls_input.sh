@@ -5,14 +5,19 @@ cd "$(dirname "$0")/.."
 tpls_jdk="$PWD/build/toolchains/temurin-21.0.12.1/jdk-21.0.12.1+1/Contents/Home"
 tpls_check="$(mktemp -d /tmp/hodoku-tpls-check.XXXXXX)"
 mkdir -p "$tpls_check/classes" "$tpls_check/tests" "$tpls_check/home" "$tpls_check/data" "$tpls_check/tmp"
-mkdir -p /tmp/hodoku-chain-edit /tmp/hodoku-chain-origin
+mkdir -p /tmp/hodoku-chain-edit /tmp/hodoku-chain-origin /tmp/hodoku-advisory-build
 rg --files src -g '*.java' > "$tpls_check/sources.txt"
 "$tpls_jdk/bin/javac" --release 8 -encoding UTF-8 -d "$tpls_check/classes" @"$tpls_check/sources.txt"
-probes=(DoodleCommandPolarityProbe TplsImmediateCoverageProbe ImmediateMappedClickProbe AnnotationDispatchDeadlineProbe ProjectedDeletionAndBoxPriorityProbe ChainBlockedPreviewProbe TplsGestureRefinementProbe ContinuousEraserWheelProbe DoodleFeedbackPolishProbe TplsClickLatencyProbe BoxSelectionToggleProbe DoodleWheelProbe ChainEditingProbe ChainRelationPreviewProbe)
+probes=(DoodleChainTranscriptionProbe ChainTranscriptionWorkflowProbe ChainTranscriptionEnterDispatchProbe DoodleStartEditingProbe DoodleStrokeErasureProbe PaletteHeldDeletionProbe DoodleConsensusBasisProbe DoodleConsensusWorkflowProbe DragFeedbackPreviewProbe DoodleUrContradictionProbe DoodleContradictionBasisProbe DoodleContradictionWorkflowProbe DoodlePreviewEditingProbe DoodleHypothesisKeyGestureProbe InteractionSpeedGestureProbe DoodleFrameIndexProbe DoodleCommandPolarityProbe TplsImmediateCoverageProbe ImmediateMappedClickProbe AnnotationDispatchDeadlineProbe ProjectedDeletionAndBoxPriorityProbe ChainBlockedPreviewProbe TplsGestureRefinementProbe ContinuousEraserWheelProbe DoodleFeedbackPolishProbe TplsClickLatencyProbe BoxSelectionToggleProbe DoodleWheelProbe ChainEditingProbe ChainRelationPreviewProbe ChainPreviewBasisProbe ChainPreviewOrdinaryProbe ChainEvidencePreviewProbe AlsManualChainProbe ChainAdvisoryProbe ChainPreviewSourceChangeProbe ChainEvidenceLifecycleProbe GroupedPreviewCommonPeerProbe DoodleImplicationPreviewProbe DoodleDerivedBasisProbe DoodleDerivedPersistenceProbe DoodleDerivedInteractionProbe DoodleCompletionWorkflowProbe)
 for probe in "${probes[@]}"; do
+    probe_args=()
+    if [[ ( "$probe" == PaletteHeldDeletionProbe || "$probe" == ChainRelationPreviewProbe || "$probe" == DoodleHypothesisKeyGestureProbe || "$probe" == DoodleConsensusWorkflowProbe || "$probe" == DoodleContradictionWorkflowProbe ) && "${HODOKU_LISTENERS_ONLY:-0}" == 1 ]]; then
+        probe_args=(--listeners-only)
+        echo "SCOPE: $probe listener/rendering checks; native UI verification is separate"
+    fi
     "$tpls_jdk/bin/javac" --release 8 -encoding UTF-8 -cp "$tpls_check/classes:$PWD/src" -sourcepath test -d "$tpls_check/tests" "test/sudoku/$probe.java"
     "$tpls_jdk/bin/java" -Dhodoku.data.dir="$tpls_check/data" -Duser.home="$tpls_check/home" -Djava.io.tmpdir="$tpls_check/tmp" \
-        -cp "$tpls_check/classes:$tpls_check/tests:$PWD/src" "sudoku.$probe" > "$tpls_check/$probe.log" 2>&1 || {
+        -cp "$tpls_check/classes:$tpls_check/tests:$PWD/src" "sudoku.$probe" ${probe_args[@]+"${probe_args[@]}"} > "$tpls_check/$probe.log" 2>&1 || {
         cat "$tpls_check/$probe.log"; exit 1;
     }
     echo "PASS: $probe"

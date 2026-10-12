@@ -24,6 +24,12 @@ CORE = (
     'OptionsPersistenceProbe', 'PairedPaletteInvariantProbe', 'PuzzleHistoryProbe',
     'SessionStoreProbe', 'WindowLayoutProbe', 'ReplayCoreProbe', 'ReplayRecoveryProbe',
     'ReplayRetirementProbe', 'ReplayInterchangeProbe',
+    'SaveOptimizationHashProbe', 'SessionCompactCodecProbe', 'SessionPrimitiveArraysProbe',
+    'OwnedProbeInputsProbe', 'ProbeInputContractProbe',
+    'SaveTraceProbe', 'DoodleCoordinatesProbe', 'SaveAlgorithmProbe',
+    'SettingsPersistenceProbe', 'SessionPersistenceProbe', 'ReplayLongTextProbe',
+    'DoodleChainTranscriptionProbe', 'DoodleConsensusBasisProbe',
+    'DoodleContradictionBasisProbe', 'DoodleDerivedBasisProbe', 'DoodleReplayStepProbe',
 )
 SWING = (
     'ImmediateMappedClickProbe', 'DoodleCompositionApplyProbe',
@@ -34,11 +40,14 @@ SWING = (
     'SessionLifecycleProbe', 'KeyboardHelpDialogProbe',
     'ChainRouteGeometryProbe', 'BoxReasoningRenderingProbe',
     'ReplayProofProbe', 'ReplayAuthoredProbe', 'ReplayRecoveryAuditProbe',
+    'IdleSessionRecoveryProbe',
 )
 # MacOSApplicationProbe registers native Desktop handlers; ReplaySharingProbe needs
 # the compiled macOS share helper. They remain in the macOS build/release workflows.
 # AppearanceRenderingProbe and ToolbarIconRenderingProbe require Mac-only dark
 # appearance initialization (ApplicationAppearance.initialize deliberately skips Linux).
+# SettingsDividerNativeProbe checks real macOS divider events and stays in the
+# native workflow. Persistence coordinator probes use only headless EDT/timers.
 
 
 def tracked_privacy():
@@ -116,8 +125,10 @@ def isolated_run(command, headless, jdk, report, name, timeout):
         # Recovery probes launch children; keep their Java home/tmp properties isolated too.
         env['JAVA_TOOL_OPTIONS'] = ('-Duser.home=' + str(sandbox / 'home') +
                                     ' -Djava.io.tmpdir=' + str(sandbox / 'tmp'))
-        if name in ('ReplayRecoveryProbe', 'ReplayRecoveryAuditProbe'):
+        if name in ('ReplayRecoveryProbe', 'ReplayRecoveryAuditProbe', 'IdleSessionRecoveryProbe'):
             command = [*command, str(sandbox / 'recovery')]
+        elif name == 'DoodleReplayStepProbe':
+            command = [*command, str(sandbox / 'doodle-replay')]
         java = [jdk['java'], '-Xmx512m', '-Djava.awt.headless=' + str(headless).lower(),
                 '-Dhodoku.data.dir=' + str(sandbox / 'data'), '-Duser.home=' + str(sandbox / 'home'),
                 '-Djava.io.tmpdir=' + str(sandbox / 'tmp'), '-Duser.language=en', '-Duser.country=US',

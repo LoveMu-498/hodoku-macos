@@ -11,6 +11,7 @@ import time
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('app', type=Path)
 parser.add_argument('--report-dir', type=Path, required=True)
+parser.add_argument('--save-observer', type=Path, help='Optional external collection helper; observes only each new test PID')
 args = parser.parse_args()
 app = args.app.resolve()
 report = args.report_dir.resolve()
@@ -54,6 +55,12 @@ for attempt in (1, 2):
         log.rename(sandbox / ('startup-previous-' + str(attempt) + '.log'))
     with (report / ('gui-' + str(attempt) + '.log')).open('w') as output:
         process = subprocess.Popen([exe], cwd=sandbox, env=env, stdout=output, stderr=output)
+        observer = None
+        if args.save_observer:
+            observer_ready = report / ('observer-ready-' + str(attempt))
+            observer = subprocess.Popen([str(args.save_observer.resolve()), str(process.pid),
+                str(report / ('external-' + str(attempt) + '.jsonl')), str(observer_ready)],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         try:
             ready = False
             for _ in range(120):
@@ -86,6 +93,8 @@ for attempt in (1, 2):
             time.sleep(1)
             if process.poll() is not None:
                 raise RuntimeError('GUI exited after native initialization')
+            if observer is not None and not observer_ready.is_file():
+                raise RuntimeError('External observer did not register before native Quit')
             # Send native Quit by PID, so an installed copy with the same bundle
             # identifier can never receive this test's Quit event.
             quit_script = '''use framework "AppKit"
@@ -98,6 +107,14 @@ end run'''
                            check=True, capture_output=True, timeout=20)
             if process.wait(timeout=20) != 0:
                 raise RuntimeError('Native Quit returned nonzero')
+            if observer is not None:
+                observer_output, _ = observer.communicate(timeout=10)
+                (report / ('observer-' + str(attempt) + '.log')).write_text(observer_output)
+                if observer.returncode != 0:
+                    raise RuntimeError('External observer failed')
+                rows = [json.loads(line) for line in (report / ('external-' + str(attempt) + '.jsonl')).read_text().splitlines()]
+                if not any(r['phase'] == 'process.exit' and r['pid'] == str(process.pid) for r in rows):
+                    raise RuntimeError('No external target-process exit evidence')
         finally:
             if process.poll() is None:
                 process.terminate()
@@ -119,7 +136,8 @@ if '/opt/homebrew/' in loaded or '/usr/local/' in loaded:
     'passed': True, 'macos': subprocess.check_output(['sw_vers', '-productVersion'], text=True).strip(),
     'architecture': os.uname().machine, 'isolated_state': str(sandbox),
     'checks': ['packaged launcher help', 'CLI solve', 'Aqua and font library startup', 'visible window for the test PID',
-               'native Quit persistence', 'relaunch', 'clean PATH without external Java'],
+               'native Quit persistence', 'relaunch', 'clean PATH without external Java'] +
+               (['independent kernel exit notification for both test PIDs'] if args.save_observer else []),
     'limits': ['Not an M1 or older macOS hardware test', 'Not Gatekeeper notarization validation']
 }, indent=2) + '\n')
 print('PASS: packaged launcher, solving, fonts/Aqua, native Quit and relaunch')

@@ -3,6 +3,7 @@
  *
  * This file is part of HoDoKu and is licensed under GPL-3.0-or-later.
  */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.Color;
@@ -335,6 +336,44 @@ public final class SudokuAppearancePalette {
 	/** Preserve the chosen hue while keeping a node ring visible on its actual cell. */
 	public Color getUserChainNodeColor(Color requested, Color background) {
 		return ensureContrast(requested, background, 3.0);
+	}
+
+	/** Solid node fills keep their source hue and enough contrast for fixed white digits. */
+	public Color getUserChainNodeFillColor(Color requested) {
+		if (requested == null) return null;
+		Color opaque = requested.getAlpha() == 255 ? requested
+				: new Color(requested.getRed(), requested.getGreen(), requested.getBlue());
+		if (contrastRatio(opaque, Color.WHITE) >= 4.5) return opaque;
+		// Scaling all channels toward black preserves hue, unlike a theme-dependent tint.
+		for (int step = 1; step <= 20; step++) {
+			double amount = step / 20.0;
+			Color adjusted = new Color(blend(opaque.getRed(), 0, amount),
+					blend(opaque.getGreen(), 0, amount), blend(opaque.getBlue(), 0, amount));
+			if (contrastRatio(adjusted, Color.WHITE) >= 4.5) return adjusted;
+		}
+		return Color.BLACK;
+	}
+
+	/** A neutral separator remains visible on the actual underlay, including same-color marks. */
+	public Color getAnnotationSeparator(Color foreground, Color background) {
+		Color underlay = background == null ? getDefaultCellColor() : background;
+		Color ink = foreground == null ? underlay : foreground;
+		double lightBackground = contrastRatio(HINT_FOREGROUND, underlay);
+		double darkBackground = contrastRatio(DARK_INK, underlay);
+		if (lightBackground < 3.0) return DARK_INK;
+		if (darkBackground < 3.0) return HINT_FOREGROUND;
+		double lightScore = Math.min(lightBackground, contrastRatio(HINT_FOREGROUND, ink));
+		double darkScore = Math.min(darkBackground, contrastRatio(DARK_INK, ink));
+		return lightScore > darkScore || lightScore == darkScore && lightBackground >= darkBackground
+				? HINT_FOREGROUND : DARK_INK;
+	}
+
+	/** Display-only adjustment; saved source colors and palette preferences stay untouched. */
+	public Color getAnnotationStrokeColor(Color requested, Color background) {
+		if (requested == null) return null;
+		Color opaque = requested.getAlpha() == 255 ? requested
+				: new Color(requested.getRed(), requested.getGreen(), requested.getBlue());
+		return ensureContrast(opaque, background == null ? getDefaultCellColor() : background, 3.0);
 	}
 
 	/** Preserve a Box group hue while keeping its boundary visible on the current cell. */

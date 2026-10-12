@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 import javax.swing.*;
 import java.nio.file.*;
@@ -22,7 +24,7 @@ public final class ReplayRecoveryGuiProbe {
     sleep.getMethod("systemAboutToSleep",event).invoke(listener,new Object[]{null});sleep.getMethod("systemAwoke",event).invoke(listener,new Object[]{null});monitor.close();
     SwingUtilities.invokeLater(()->check(notifications[0]==2,"notification dispatch"));
     if(a[1].equals("write")){
-     frame.setPuzzle("530070000600195000098000060800060003400803001700020006060000280000419005000080079");frame.getSudokuPanel().setCell(0,2,4);r.afterAction();r.checkpoint(false);Files.write(dir.resolve("expected-id"),r.session().id.getBytes("UTF-8"));
+     frame.setPuzzle("530070000600195000098000060800060003400803001700020006060000280000419005000080079");frame.getSudokuPanel().setCell(0,2,4);r.afterAction();r.checkpoint(false);r.flushPendingSaves();Files.write(dir.resolve("expected-id"),r.session().id.getBytes("UTF-8"));
     }else if(a[1].equals("editwrite")){
      frame.setPuzzle("530070000600195000098000060800060003400803001700020006060000280000419005000080079");
      Method edit=MainFrame.class.getDeclaredMethod("spielEditierenMenuItemActionPerformed",java.awt.event.ActionEvent.class);edit.setAccessible(true);edit.invoke(frame,new Object[]{null});

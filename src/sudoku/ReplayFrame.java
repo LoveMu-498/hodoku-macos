@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 /** One immutable viewing frame. Several frames can belong to one operation. */
@@ -7,7 +9,7 @@ public final class ReplayFrame {
     public final ReplayBoard board;
     private final byte[] evidence;
     final ReplayAnnotations annotations;
-    boolean methodStep(){return kind.equals("proof")||kind.equals("authored-input")||kind.equals("authored-result")||kind.equals("foreign-method");}
+    boolean methodStep(){return kind.equals("proof")||kind.equals("authored-input")||kind.equals("authored-result")||kind.equals("foreign-method")||annotations.doodleStep!=null&&(kind.equals("doodle-conclusion-input")||kind.equals("doodle-or-input"));}
     ReplayFrame withAnnotations(ReplayAnnotations value){return new ReplayFrame(operationId,wallTimeMillis,elapsedMillis,kind,label,board,evidence,value);}
     public ReplayFrame(long operationId,long wallTimeMillis,long elapsedMillis,String kind,String label,ReplayBoard board,byte[] evidence){
         this(operationId,wallTimeMillis,elapsedMillis,kind,label,board,evidence,ReplayAnnotations.EMPTY);

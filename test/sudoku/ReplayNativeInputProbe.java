@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 import javax.swing.*;
 import java.awt.*;
@@ -26,7 +28,7 @@ public final class ReplayNativeInputProbe {
    edt(()->{require(new ReplayBoard(panel.getSudoku()).equals(original.get()),"replay key mutated live board");require(controller.session().frames().size()==2,"browsing was recorded");controller.viewer().showFrame(1);require(controller.viewer().boardPanel().getSudoku().getValue(2)==4,"applied native view");
     java.awt.image.BufferedImage image=new java.awt.image.BufferedImage(1000,800,java.awt.image.BufferedImage.TYPE_INT_RGB);frame.paint(image.getGraphics());try{javax.imageio.ImageIO.write(image,"png",data.resolve("viewer.png").toFile());}catch(Exception e){throw new RuntimeException(e);}controller.closeViewer();panel.undo();});
    robot.waitForIdle();edt(()->{require(panel.getSudoku().getValue(2)==0,"original undo state not preserved");require(controller.session().frames().size()==3,"undo did not append");});
-   ReplaySession loaded=ReplayStore.read(controller.directory().resolve(controller.session().id+".hrep"));require(loaded.frames().size()==3,"real storage not current");
+   controller.flushPendingSaves();ReplaySession loaded=ReplayStore.read(controller.directory().resolve(controller.session().id+".hrep"));require(loaded.frames().size()==3,"real storage not current");
    System.out.println("Replay native actual key, complete action, native read-only viewer, undo preservation and disk roundtrip passed: "+data);
   }catch(Throwable t){t.printStackTrace();System.exit(1);}finally{if(frame!=null)edt(()->frame.dispose());}
   System.exit(0);

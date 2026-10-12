@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.*;
@@ -16,7 +18,7 @@ public final class ReplayViewer extends JPanel {
     private final JTextArea interruptionNotice=new JTextArea();
     private final JLabel position=new JLabel(),error=new JLabel();
     private final JPanel actions=new JPanel(new WrapLayout());
-    private final JButton first=button("|◀","first"),previousGroup=button("◀◀","previousGroup"),previous=button("◀","previous"),play=button("▶","play"),next=button("▶","next"),nextGroup=button("▶▶","nextGroup"),last=button("▶|","last");
+    private final JButton first=button(ReplayIcon.Kind.FIRST,"first"),previousGroup=button(ReplayIcon.Kind.PREVIOUS_GROUP,"previousGroup"),previous=button(ReplayIcon.Kind.PREVIOUS,"previous"),play=button(ReplayIcon.Kind.PLAY,"play"),next=button(ReplayIcon.Kind.NEXT,"next"),nextGroup=button(ReplayIcon.Kind.NEXT_GROUP,"nextGroup"),last=button(ReplayIcon.Kind.LAST,"last");
     private final JSlider timeline=new JSlider(0,1000000,0);
     private final JComboBox<String> bookmarks=new JComboBox<String>();
     private final javax.swing.Timer playback;
@@ -29,25 +31,29 @@ public final class ReplayViewer extends JPanel {
     }
     ReplayViewer(ReplayController controller,ReplaySession session,java.util.function.LongSupplier nanoTime){
         super(new BorderLayout(6,6));this.controller=controller;this.session=session;this.nanoTime=nanoTime;frames=session.frames();
-        setOpaque(true);setBackground(UIManager.getColor("Panel.background"));setBorder(BorderFactory.createEmptyBorder(8,8,8,8));
+        setOpaque(true);setBackground(UIManager.getColor("Panel.background"));setBorder(BorderFactory.createEmptyBorder(12,12,12,12));
         setFocusable(true);board=new SudokuPanel(controller.owner(),true);
         position.putClientProperty("html.disable",Boolean.TRUE);error.putClientProperty("html.disable",Boolean.TRUE);
         DefaultListCellRenderer bookmarkRenderer=new DefaultListCellRenderer();bookmarkRenderer.putClientProperty("html.disable",Boolean.TRUE);bookmarks.setRenderer(bookmarkRenderer);
         JPanel controls=actions;
         JButton close=new JButton(ReplayText.text("return"));close.addActionListener(e->controller.closeViewer());controls.add(close);
         JLabel mode=new JLabel(ReplayText.text("readOnly"));mode.setFont(mode.getFont().deriveFont(Font.BOLD));controls.add(mode);
+        controls.add(Box.createHorizontalStrut(8));
         ReplayFileActions.install(controls,controller,session);
         JButton branch=new JButton(ReplayText.text("branch"));branch.setEnabled(!frames.isEmpty());branch.addActionListener(e->{
             setPlaying(false);
             if(JOptionPane.showConfirmDialog(this,ReplayText.text("branchConfirm"),ReplayText.text("branch"),JOptionPane.OK_CANCEL_OPTION)!=JOptionPane.OK_OPTION)return;
             try{controller.branchFromFrame(session,index);}catch(java.io.IOException failure){JOptionPane.showMessageDialog(this,ReplayText.text("branchFailure",failure.getMessage()),ReplayText.text("branch"),JOptionPane.ERROR_MESSAGE);}
         });controls.add(branch);
-        JPanel header=new JPanel(new BorderLayout());header.add(controls,BorderLayout.NORTH);
-        frameTitle.putClientProperty("html.disable",Boolean.TRUE);header.add(frameTitle,BorderLayout.CENTER);
+        JPanel header=new JPanel(new BorderLayout(0,8)){
+            // A wrapped toolbar's preferred height changes with the viewer width.
+            @Override public Dimension getPreferredSize(){return getLayout().preferredLayoutSize(this);}
+        };header.add(controls,BorderLayout.NORTH);
+        frameTitle.putClientProperty("html.disable",Boolean.TRUE);frameTitle.setFont(frameTitle.getFont().deriveFont(Font.BOLD,frameTitle.getFont().getSize()+1f));header.add(frameTitle,BorderLayout.CENTER);
         description.setSudokuPanel(board);description.setFont(controller.owner().getHintTextArea().getFont());
         description.setLineWrap(true);description.setWrapStyleWord(true);description.setRows(4);
         description.setToolTipText(ReplayText.text("referenceHint"));
-        interruptionNotice.setEditable(false);interruptionNotice.setFocusable(false);interruptionNotice.setLineWrap(true);interruptionNotice.setWrapStyleWord(true);interruptionNotice.setOpaque(false);
+        interruptionNotice.setEditable(false);interruptionNotice.setFocusable(false);interruptionNotice.setLineWrap(true);interruptionNotice.setWrapStyleWord(true);interruptionNotice.setOpaque(false);interruptionNotice.setForeground(UIManager.getColor("Label.disabledForeground"));
         if(!session.interruption.isEmpty()){
             String state=session.completed?ReplayText.text("completed"):session.id.equals(controller.session().id)?ReplayText.text("current"):ReplayText.text("unfinished");
             interruptionNotice.setText(ReplayText.text("interruptionNotice",state));interruptionNotice.setRows(2);header.add(interruptionNotice,BorderLayout.SOUTH);
@@ -58,9 +64,11 @@ public final class ReplayViewer extends JPanel {
         JSplitPane content=new JSplitPane(JSplitPane.VERTICAL_SPLIT,board,hintScroll);content.setResizeWeight(1.0);content.setContinuousLayout(true);content.setBorder(null);
         JPanel center=new JPanel(new BorderLayout());center.add(content,BorderLayout.CENTER);error.setHorizontalAlignment(SwingConstants.CENTER);center.add(error,BorderLayout.SOUTH);add(center,BorderLayout.CENTER);
         first.addActionListener(e->showFrame(0));last.addActionListener(e->showFrame(frames.size()-1));previous.addActionListener(e->showFrame(index-1));next.addActionListener(e->showFrame(index+1));previousGroup.addActionListener(e->jumpOperation(-1));nextGroup.addActionListener(e->jumpOperation(1));play.addActionListener(e->setPlaying(!playing));
-        JPanel navigation=new JPanel(new WrapLayout());for(JButton button:new JButton[]{first,previousGroup,previous,play,next,nextGroup,last})navigation.add(button);
+        JPanel navigation=new JPanel(new FlowLayout(FlowLayout.CENTER,6,0));for(JButton button:new JButton[]{first,previousGroup,previous,play,next,nextGroup,last})navigation.add(button);
+        play.setFont(play.getFont().deriveFont(Font.BOLD));play.setText(ReplayText.text("play"));play.setPreferredSize(null);play.setMargin(new Insets(4,12,4,12));
+        position.setFont(new Font(Font.MONOSPACED,Font.PLAIN,position.getFont().getSize()));
         bookmarks.addItem(ReplayText.text("bookmarks"));for(ReplayBookmark marker:session.bookmarks())bookmarks.addItem(marker.name);bookmarks.setPrototypeDisplayValue("000000000000");bookmarks.setEnabled(!session.bookmarks().isEmpty());bookmarks.addActionListener(e->{int selected=bookmarks.getSelectedIndex()-1;if(!updating&&selected>=0)showFrame(session.bookmarks().get(selected).frameIndex);});JPanel detailRow=new JPanel(new BorderLayout(6,0));detailRow.add(position,BorderLayout.WEST);detailRow.add(bookmarks,BorderLayout.EAST);
-        JPanel footer=new JPanel(new BorderLayout());footer.add(timeline,BorderLayout.NORTH);footer.add(navigation,BorderLayout.CENTER);footer.add(detailRow,BorderLayout.SOUTH);add(footer,BorderLayout.SOUTH);
+        JPanel footer=new JPanel(new BorderLayout(0,8));footer.setBorder(BorderFactory.createEmptyBorder(6,0,0,0));footer.add(timeline,BorderLayout.NORTH);footer.add(navigation,BorderLayout.CENTER);footer.add(detailRow,BorderLayout.SOUTH);add(footer,BorderLayout.SOUTH);
         for(ReplayFrame frame:frames)maxTime=Math.max(maxTime,frame.elapsedMillis);
         maxTime=Math.max(maxTime,session.elapsedMillis);
         timeline.setToolTipText(ReplayText.text("timeline"));timeline.setEnabled(frames.size()>1||maxTime>0);timeline.addChangeListener(e->{if(!updating)snapToTime(Math.round(timeline.getValue()/1000000.0*maxTime));});
@@ -68,7 +76,8 @@ public final class ReplayViewer extends JPanel {
         addMouseListener(new MouseAdapter(){});addMouseMotionListener(new MouseMotionAdapter(){});
         display(0);
     }
-    private static JButton button(String glyph,String label){JButton b=new JButton(glyph);b.setToolTipText(ReplayText.text(label));b.getAccessibleContext().setAccessibleName(ReplayText.text(label));return b;}
+    private static JButton button(ReplayIcon.Kind kind,String label){JButton b=new JButton(new ReplayIcon(kind,18));b.setDisabledIcon(b.getIcon());b.setPreferredSize(new Dimension(34,30));b.setRolloverEnabled(true);b.setToolTipText(ReplayText.text(label));b.getAccessibleContext().setAccessibleName(ReplayText.text(label));return b;}
+    private void updatePlaybackControl(){String label=ReplayText.text(playing?"pause":"play");play.setText(label);play.setIcon(new ReplayIcon(playing?ReplayIcon.Kind.PAUSE:ReplayIcon.Kind.PLAY,18));play.setDisabledIcon(play.getIcon());play.setToolTipText(label);play.getAccessibleContext().setAccessibleName(label);}
     public JPanel actionBar(){return actions;}
     public ReplaySession session(){return session;}
     public int frameIndex(){return index;}
@@ -96,8 +105,7 @@ public final class ReplayViewer extends JPanel {
         if(!value&&playing)advancePlayback();
         if(value&&!playing&&!frames.isEmpty()&&index==frames.size()-1&&cursorMillis>=maxTime)display(0);
         playing=value&&!frames.isEmpty()&&(index<frames.size()-1||cursorMillis<maxTime);
-        play.setText(playing?"Ⅱ":"▶");play.setToolTipText(ReplayText.text(playing?"pause":"play"));
-        play.getAccessibleContext().setAccessibleName(ReplayText.text(playing?"pause":"play"));
+        updatePlaybackControl();
         if(playing){segmentStart=cursorMillis;playbackStart=nanoTime.getAsLong();playback.start();}else playback.stop();
     }
     /** Continuous playback position; stored frames change only at their operation boundaries. */
@@ -117,7 +125,7 @@ public final class ReplayViewer extends JPanel {
             display(index+1);segmentStart=cursorMillis;playbackStart=nanoTime.getAsLong();
         }
         if(index==frames.size()-1&&cursorMillis>=maxTime){
-            playing=false;playback.stop();play.setText("▶");play.setToolTipText(ReplayText.text("play"));play.getAccessibleContext().setAccessibleName(ReplayText.text("play"));
+            playing=false;playback.stop();updatePlaybackControl();
         }
     }
     private void updateProgress(){
@@ -144,8 +152,36 @@ public final class ReplayViewer extends JPanel {
         index=Math.max(0,Math.min(frames.size()-1,positionIndex));ReplayFrame frame=frames.get(index);
         try{ReplayFrame rendered=index==0&&session.initialAnnotations().length>0?new ReplayFrame(frame.operationId,frame.wallTimeMillis,frame.elapsedMillis,"authored-input",frame.label,frame.board,session.initialAnnotations(),frame.annotations):frame;board.displayReplayFrame(rendered);SolutionStep proof=ReplayEvidence.proof(frame.evidence());
             if(proof==null&&"apply".equals(frame.kind))for(int prior=index-1;prior>=0&&frames.get(prior).operationId==frame.operationId;prior--){proof=ReplayEvidence.proof(frames.get(prior).evidence());if(proof!=null)break;}
-            frameTitle.setText(frame.label);frameTitle.setToolTipText(" "+frame.label);description.setReferenceText(proof==null?frame.label+"\n"+frame.annotations.description():proof.toString(2));description.setCaretPosition(0);board.setVisible(true);error.setText(frame.annotations.notice());}
-        catch(Exception failure){board.setVisible(false);error.setText(ReplayText.text("frameError",failure.getMessage()));description.setReferenceText(frame.label);playing=false;playback.stop();play.setText("▶");}
+            if((proof!=null&&(frame.kind.equals("apply")||frame.kind.equals("authored-apply")))
+                    ||frame.kind.equals("foreign-action")&&!frame.annotations.proofCandidateAtoms().isEmpty()){
+                ReplayBoard proofBoard=frame.board;
+                for(int prior=index-1;prior>=0&&frames.get(prior).operationId==frame.operationId;prior--){
+                    ReplayFrame source=frames.get(prior);
+                    if(source.kind.equals("proof")||source.kind.equals("authored-result")||source.kind.equals("foreign-method")){
+                        proofBoard=source.board;break;
+                    }
+                }
+                board.displayReplayFrame(frame,proof,proofBoard);
+            }
+            DoodleReplayStep doodleStep=frame.annotations.doodleStep;
+            if(frame.kind.equals("doodle-conclusion-result")||frame.kind.equals("doodle-or-result")){
+                for(int prior=index-1;prior>=0&&frames.get(prior).operationId==frame.operationId;prior--){
+                    ReplayFrame input=frames.get(prior);
+                    if(!input.kind.equals("doodle-conclusion-input")&&!input.kind.equals("doodle-or-input"))continue;
+                    int group=input.annotations.outlineVisibleGroup;
+                    if(group<0)break;
+                    java.util.List<DoodleStroke> displayInk=frame.annotations.ink();
+                    displayInk.removeIf(mark->mark.getThoughtGroup()==group);
+                    // Keep post-state marks from other colors; this operation's input is readonly evidence.
+                    for(DoodleStroke mark:input.annotations.ink())if(mark.getThoughtGroup()==group)displayInk.add(mark);
+                    board.displayReplayFrame(frame.withAnnotations(frame.annotations.withViewingInk(displayInk,group)));break;
+                }
+            }
+            frameTitle.setText(doodleStep==null?frame.label:doodleStep.compactTitle());frameTitle.setToolTipText(" "+frame.label);
+            String annotationText=frame.annotations.description().trim();
+            String commonText=annotationText.isEmpty()||annotationText.equals(frame.label.trim())?frame.label:frame.label+"\n"+annotationText;
+            description.setReferenceText(doodleStep!=null?doodleStep.description():proof==null?commonText:proof.toString(2));description.setCaretPosition(0);board.setVisible(true);error.setText(frame.annotations.notice());error.setToolTipText(frame.annotations.notice());}
+        catch(Exception failure){board.setVisible(false);error.setText(ReplayText.text("frameError",failure.getMessage()));description.setReferenceText(frame.label);playing=false;playback.stop();updatePlaybackControl();}
         cursorMillis=frame.elapsedMillis;updateProgress();position.setToolTipText(ReplayText.text("wallTime",new java.util.Date(frame.wallTimeMillis).toString()));
         first.setEnabled(index>0);previousGroup.setEnabled(index>0);previous.setEnabled(index>0);next.setEnabled(index<frames.size()-1);nextGroup.setEnabled(frames.get(index).operationId!=frames.get(frames.size()-1).operationId);last.setEnabled(index<frames.size()-1);play.setEnabled(frames.size()>1||maxTime>0);
 
@@ -153,6 +189,12 @@ public final class ReplayViewer extends JPanel {
     /** Flow rows wrap instead of clipping action buttons in a narrow window. */
     static final class WrapLayout extends FlowLayout {
         WrapLayout(){super(FlowLayout.LEFT,4,3);}
-        @Override public Dimension preferredLayoutSize(Container target){synchronized(target.getTreeLock()){int width=target.getParent()!=null?target.getParent().getWidth():target.getWidth();if(width<=0)width=700;Insets in=target.getInsets();int available=Math.max(1,width-in.left-in.right-getHgap()*2),x=0,rowHeight=0,height=getVgap()*2;for(Component c:target.getComponents())if(c.isVisible()){Dimension d=c.getPreferredSize();if(x>0&&x+d.width>available){height+=rowHeight+getVgap();x=0;rowHeight=0;}x+=d.width+getHgap();rowHeight=Math.max(rowHeight,d.height);}return new Dimension(width,height+rowHeight+in.top+in.bottom);}}
+        @Override public Dimension preferredLayoutSize(Container target){synchronized(target.getTreeLock()){
+            Container parent=target.getParent();int width=parent!=null?parent.getWidth():target.getWidth();
+            // BorderLayout asks for the header's height before resizing that header.
+            // Use the viewer's current usable width so wrapped rows and the title both fit immediately.
+            if(parent!=null&&parent.getParent() instanceof ReplayViewer){Container viewer=parent.getParent();Insets border=viewer.getInsets();width=viewer.getWidth()-border.left-border.right;}
+            if(width<=0)width=700;Insets in=target.getInsets();int available=Math.max(1,width-in.left-in.right-getHgap()*2),x=0,rowHeight=0,height=getVgap()*2;for(Component c:target.getComponents())if(c.isVisible()){Dimension d=c.getPreferredSize();if(x>0&&x+d.width>available){height+=rowHeight+getVgap();x=0;rowHeight=0;}x+=d.width+getHgap();rowHeight=Math.max(rowHeight,d.height);}return new Dimension(width,height+rowHeight+in.top+in.bottom);
+        }}
     }
 }

@@ -3,6 +3,7 @@
  *
  * This file is part of HoDoKu and is licensed under GPL-3.0-or-later.
  */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.Color;
@@ -26,9 +27,18 @@ public final class SessionSnapshot {
 	private Color primaryColor;
 	private Color secondaryColor;
 	private int coloringMode;
+    private String replayId = "";
+    private int replayFrameCount;
+    private long replayElapsedMillis;
 
 	public SessionSnapshot() {
 	}
+    public String getReplayId() { return replayId; }
+    public void setReplayId(String value) { replayId = value == null ? "" : value; }
+    public int getReplayFrameCount() { return replayFrameCount; }
+    public void setReplayFrameCount(int value) { replayFrameCount = value; }
+    public long getReplayElapsedMillis() { return replayElapsedMillis; }
+    public void setReplayElapsedMillis(long value) { replayElapsedMillis = value; }
 
 	public int getFormatVersion() {
 		return formatVersion;

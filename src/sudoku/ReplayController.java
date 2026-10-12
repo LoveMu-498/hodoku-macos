@@ -1,3 +1,5 @@
+/* Copyright (C) 2026 HoDoKu contributors; GPL-3.0-or-later. */
+// Modified by HoDoKu macOS contributors, 2026-10-10; see CHANGES.md.
 package sudoku;
 
 import java.awt.*;
@@ -32,6 +34,8 @@ public final class ReplayController {
     private String evidenceWarning;
     public void reportEvidenceFailure(RuntimeException failure){evidenceWarning=ReplayText.text("evidenceWarning",failure.getMessage());LOG.log(Level.WARNING,evidenceWarning,failure);refreshStatus();}
     private final ReplayRecovery recovery;
+    private final ReplayPersistence persistence;
+    private final Set<String> persistenceFailedIds=new HashSet<String>();
     private final ReplaySleepMonitor sleepMonitor=new ReplaySleepMonitor();
     private boolean closing;
     private long lastCheckpointNanos;
@@ -45,12 +49,26 @@ public final class ReplayController {
         directory=Paths.get(System.getProperty("hodoku.replay.dir",ApplicationPaths.getDataDirectory().toPath().resolve("replays").toString()));
         library=new ReplayLibrary(directory);
         recovery=new ReplayRecovery(directory);
+        persistence=new ReplayPersistence(directory,recovery,()->{syncPersistenceStatus();refreshStatus();});
         ReplaySession restored=null;String restoreError=null;
         try{ReplayRetirement.clean(directory);restored=recovery.restore();}catch(Exception e){restoreError=ReplayText.text("restoreError",e.getMessage());LOG.log(Level.WARNING,restoreError,e);}
         if(restored!=null&&restore){
-            // Only a clean checkpoint follows a successful native-session save. Equal clues
-            // alone cannot establish attempt identity after a crash or same-puzzle restart.
-            if(!recovery.cleanSnapshot||(!recovery.cleanEditing&&!restored.last().board.equals(new ReplayBoard(live.getSudoku()))))
+            SessionSnapshot nativeState=owner.recoverableNativeSession(restored);
+            if(nativeState!=null){
+                owner.mergeRecoveredReplaySavePoints(restored);
+                restored.elapsedMillis=Math.max(restored.elapsedMillis,nativeState.getReplayElapsedMillis());
+                if(nativeState.getReplayFrameCount()>restored.frameCount()){
+                    ReplayBoard nativeBoard=new ReplayBoard(live.getSudoku());
+                    if(!nativeBoard.equals(restored.last().board))
+                        restored.append(Collections.singletonList(new ReplayFrame(restored.last().operationId+1,clock.wallTimeMillis(),restored.elapsedMillis,"evidence-unavailable",SaveFailure.text("nativeRecovered"),nativeBoard,null,live.captureReplayAnnotations())));
+                    // Missing operations may return to the old board. Keep the explicit
+                    // interruption notice without inventing a board-changing operation.
+                    restored.interruption=SaveFailure.text("nativeRecovered");
+                }
+            }
+            // Idle native commits need not leave a clean checkpoint. Retain them only
+            // after checking exact attempt/frame/board identity; equal clues are insufficient.
+            if(nativeState==null&&(!recovery.cleanSnapshot||(!recovery.cleanEditing&&!restored.last().board.equals(new ReplayBoard(live.getSudoku())))))
                 owner.restoreReplayAttempt(restored);
             replaceSession(restored);if(recovery.cleanEditing){owner.restoreReplayEditingMode();beforeEditing=restored.last().board;pauseClock("editing");}persist();
         }else{
@@ -75,8 +93,8 @@ public final class ReplayController {
             @Override protected void dispatchEvent(AWTEvent event){
                 if(blockInput(event))return;
                 boolean outer=!dispatching; if(outer)dispatching=true;
-                try{super.dispatchEvent(event);}finally{if(outer){dispatching=false;if(owner.isDisplayable())afterAction();}
-                    if(event instanceof WindowEvent && event.getSource()==owner && event.getID()==WindowEvent.WINDOW_CLOSED){if(viewer!=null)viewer.disposeViewer();timer.stop();sleepMonitor.close();viewer=null;pop();}
+                try{super.dispatchEvent(event);}finally{if(outer){dispatching=false;if(owner.isDisplayable()){afterAction();owner.afterPersistenceEvent(event);}}
+                    if(event instanceof WindowEvent && event.getSource()==owner && event.getID()==WindowEvent.WINDOW_CLOSED){if(viewer!=null)viewer.disposeViewer();timer.stop();sleepMonitor.close();persistence.close();owner.closePersistence();viewer=null;pop();}
                 }
             }
         });
@@ -89,6 +107,7 @@ public final class ReplayController {
         // glass pane absorbs background clicks and its board renderer is input-disabled.
         if(event instanceof MouseEvent && (source==owner || source==replayOverlay))return false;
         if(event instanceof InputEvent || event instanceof java.awt.event.InputMethodEvent || event instanceof ActionEvent){
+            if(source instanceof Component && replayNavigation((Component)source))return false;
             if(event instanceof ActionEvent && source instanceof JMenuItem && menuStates.containsKey(source))return true;
             if(source instanceof Component){
                 Component c=(Component)source;
@@ -147,7 +166,7 @@ public final class ReplayController {
         if(closing)return;
         capture("manual",ReplayText.text("manual"));
         if(suspension==0&&!isEditing()&&!isViewing()&&!session.completed&&live.getSudoku().isSolved()&&live.getSudoku().checkSudoku()){
-            updateElapsed();session.completed=true;session.retained=true;session.endedAt=clock.wallTimeMillis();clock.pause("completed");persist();rotateLibrary();
+            updateElapsed();session.completed=true;session.retained=true;session.endedAt=clock.wallTimeMillis();clock.pause("completed");persistLater();
             if(changeListener!=null)changeListener.run();
         }
     }
@@ -160,25 +179,46 @@ public final class ReplayController {
     }
     public void appendOperation(List<ReplayFrame> frames){
         if(session.completed||frames.isEmpty())return;
-        session.append(frames);persist();if(changeListener!=null)changeListener.run();
+        session.append(frames);persistLater();if(changeListener!=null)changeListener.run();
     }
     public void persist(){
-        long start=System.nanoTime();
-        try{Path file=directory.resolve(session.id+".hrep");ReplayStore.write(file,session);recovery.checkpoint(session,false);lastCheckpointNanos=System.nanoTime();failedSaves.remove(session.id);error=failedSaves.isEmpty()?null:ReplayText.text("outstanding",failedSaves.size());
-            LOG.log(Level.FINE,"Replay saved: frames={0}, bytes={1}, elapsedMicros={2}",new Object[]{session.frames().size(),Files.size(file),(System.nanoTime()-start)/1000});
-        }catch(Exception e){failedSaves.put(session.id,session);error=e.getMessage();LOG.log(Level.WARNING,"Replay save failed",e);}
+        persistence.enqueue(session);
+        try{persistence.flush();lastCheckpointNanos=System.nanoTime();}catch(java.io.IOException e){LOG.log(Level.WARNING,"Replay save failed",e);}
+        syncPersistenceStatus();
         refreshStatus();
     }
+    private void persistLater(){persistence.enqueue(session);refreshStatus();}
+    private void syncPersistenceStatus(){
+        for(String id:persistenceFailedIds)failedSaves.remove(id);persistenceFailedIds.clear();
+        Map<String,ReplaySession> failures=persistence.failed();failedSaves.putAll(failures);persistenceFailedIds.addAll(failures.keySet());
+        java.io.IOException failure=persistence.failure();
+        error=failure!=null?SaveFailure.details(failure):failedSaves.isEmpty()?null:ReplayText.text("outstanding",failedSaves.size());
+    }
+    /** Explicit durability boundary for file/library transactions and verification. */
+    public void flushPendingSaves()throws java.io.IOException{persistence.flush();syncPersistenceStatus();}
+    void flushPendingSavesForWorker()throws java.io.IOException{persistence.flush();SwingUtilities.invokeLater(()->{syncPersistenceStatus();refreshStatus();});}
     public void checkpoint(boolean clean){
         if(closing&&!clean)return;
-        updateElapsed();try{if((error!=null||!failedSaves.isEmpty())&&!clean){retrySaves();return;}recovery.checkpoint(session,clean);lastCheckpointNanos=System.nanoTime();}catch(Exception e){error=e.getMessage();LOG.log(Level.WARNING,"Replay checkpoint failed",e);}refreshStatus();
+        updateElapsed();try{persistence.checkpoint(session,clean,false);lastCheckpointNanos=System.nanoTime();}catch(Exception e){error=SaveFailure.details(e);LOG.log(Level.WARNING,"Replay checkpoint failed",e);}refreshStatus();
     }
     public void prepareQuit()throws java.io.IOException{
-        if(!closing){afterAction();pauseClock("closing");closing=true;}
-        retrySaves();if(error!=null||!failedSaves.isEmpty())throw new java.io.IOException(error==null?ReplayText.text("unsaved"):error);
+        try{prepareQuitSave().run((stage,percent)->{});}catch(java.io.IOException e){throw e;}catch(Exception e){throw new java.io.IOException("Unable to prepare replay save",e);}syncPersistenceStatus();
     }
-    public void completeQuit()throws java.io.IOException{recovery.checkpoint(session,true,isEditing());}
-    public void cancelQuit(){closing=false;resumeClock("closing");checkpoint(false);}
+    SaveProgress.Work prepareQuitSave(){
+        if(!closing){afterAction();pauseClock("closing");closing=true;}
+        persistence.enqueue(session);
+        Map<String,ReplaySession> legacy=new LinkedHashMap<>();
+        for(ReplaySession pending:failedSaves.values())if(!persistenceFailedIds.contains(pending.id)&&!pending.id.equals(session.id))legacy.put(pending.id,pending.persistenceSnapshot());
+        return progress->{
+            persistence.flush();
+            java.io.IOException failure=null;
+            for(ReplaySession pending:legacy.values())try{ReplayStore.write(library.path(pending),pending);}catch(Exception e){java.io.IOException detail=new SaveFailure(SaveFailure.text("replay"),library.path(pending),e);if(failure==null)failure=detail;else failure.addSuppressed(detail);}
+            if(failure!=null)throw failure;
+            SwingUtilities.invokeLater(()->{for(String id:legacy.keySet())failedSaves.remove(id);syncPersistenceStatus();});
+        };
+    }
+    public void completeQuit()throws java.io.IOException{persistence.checkpoint(session,true,isEditing());}
+    public void cancelQuit(){SaveTrace.abandonExit("application_resumed");closing=false;resumeClock("closing");checkpoint(false);}
     public ReplayLibrary library(){return library;}
     public List<ReplaySession> records()throws java.io.IOException{
         Map<String,ReplaySession> all=new LinkedHashMap<String,ReplaySession>();
@@ -188,20 +228,23 @@ public final class ReplayController {
         Collections.sort(result,(a,b)->Long.compare(b.startedAt,a.startedAt));return result;
     }
     public boolean hasPendingSave(String id){return failedSaves.containsKey(id);}
-    public void retainCurrent(){capture("manual",ReplayText.text("manual"));session.retained=true;updateElapsed();persist();}
+    public void retainCurrent(){retainCurrentForSave();persist();}
+    void retainCurrentForSave(){capture("manual",ReplayText.text("manual"));session.retained=true;updateElapsed();persistLater();}
     public void createSavePointMarker(String name){
         if(session.completed)return;
         capture("manual",ReplayText.text("manual"));session.retained=true;
-        session.addBookmark(new ReplayBookmark(session.frames().size()-1,name,wallTimeMillis(),elapsedMillis()));persist();
+        session.addBookmark(new ReplayBookmark(session.frameCount()-1,name,wallTimeMillis(),elapsedMillis()));persistLater();
     }
     public void savePointRestored(){capture("restore-savepoint",ReplayText.text("restorePoint"));}
     public void retrySaves(){
+        try{flushPendingSaves();}catch(java.io.IOException e){error=SaveFailure.details(e);}
         for(ReplaySession pending:new ArrayList<ReplaySession>(failedSaves.values())){
             try{ReplayStore.write(library.path(pending),pending);if(!pending.id.equals(session.id)&&pending.endedAt!=0&&!pending.retained&&!pending.completed&&!pending.pinned)library.discard(pending);failedSaves.remove(pending.id);}catch(java.io.IOException e){error=e.getMessage();}
         }
         persist();rotateLibrary();refreshStatus();
     }
     public void pinRecord(ReplaySession selected,boolean pinned)throws java.io.IOException{
+        flushPendingSaves();
         ReplaySession target=selected.id.equals(session.id)?session:failedSaves.containsKey(selected.id)?failedSaves.get(selected.id):selected;
         try{library.setPinned(target,pinned);if(target==session){recovery.checkpoint(session,false);lastCheckpointNanos=System.nanoTime();}failedSaves.remove(target.id);error=failedSaves.isEmpty()?null:ReplayText.text("retryOutstanding");}
         catch(java.io.IOException e){if(target.retained&&!(e instanceof ReplayLibrary.PinLimitException))failedSaves.put(target.id,target);reportLibraryError(e);throw e;}
@@ -209,7 +252,7 @@ public final class ReplayController {
     }
     public void rotateLibrary(){try{library.rotate(session.id,failedSaves.keySet());}catch(java.io.IOException e){reportLibraryError(e);}}
     private void reportLibraryError(Exception e){error=e.getMessage();LOG.log(Level.WARNING,"Replay library operation failed",e);refreshStatus();}
-    public void openLibrary(){new ReplayLibraryDialog(this).setVisible(true);}
+    public void openLibrary(){if(viewer!=null)viewer.setPlaying(false);new ReplayLibraryDialog(this).setVisible(true);}
     /** Feedback keeps the successful puzzle/savepoint save distinct from a failed replay write. */
     public void showRetentionFailure(String success){
         if(lastError()!=null)JOptionPane.showMessageDialog(owner,ReplayText.text("saveFailureDetail",success,lastError()),ReplayText.text("saveFailure"),JOptionPane.WARNING_MESSAGE);
@@ -217,8 +260,8 @@ public final class ReplayController {
     public void refreshStatus(){
         long seconds=session.elapsedMillis/1000;
         String time=String.format("%02d:%02d:%02d",seconds/3600,(seconds/60)%60,seconds%60);
-        String state=session.completed?ReplayText.text("completed"):isEditing()?ReplayText.text("editing"):ReplayText.text("steps",Math.max(0,session.frames().size()-1));
-        status.setText(time);
+        String state=session.completed?ReplayText.text("completed"):isEditing()?ReplayText.text("editing"):ReplayText.text("steps",Math.max(0,session.frameCount()-1));
+        status.setText(time+(error!=null?" · "+SaveFailure.text("failed"):persistence.busy()?" · "+SaveFailure.text("saving"):""));
         String detail=ReplayText.text("elapsedHint")+" · "+state;
         if(!session.interruption.isEmpty())detail+=" · "+session.interruption;
         if(error!=null)detail+=" · "+error;
@@ -236,7 +279,7 @@ public final class ReplayController {
             raw=ReplayEvidence.input(authored.source,authored.boxes(),geometry);
         }else if(frameIndex==0)raw=source.initialAnnotations();
         retrySaves();if(error!=null||!failedSaves.isEmpty())throw new java.io.IOException(error==null?ReplayText.text("unsaved"):error);
-        ReplaySession next=new ReplaySession(frame.board,wallTimeMillis());next.sourceReplayId=source.id;next.sourceFrameIndex=frameIndex;next.setInitialAnnotations(raw);next.setInitialFrameAnnotations(frame.annotations);
+        ReplaySession next=new ReplaySession(frame.board,wallTimeMillis());next.sourceReplayId=source.id;next.sourceFrameIndex=frameIndex;next.setInitialAnnotations(raw);next.setInitialFrameAnnotations(frame.annotations.forEditing());
         Sudoku2 selected=frame.board.toSudoku();
         if(selected.isSolved()&&selected.checkSudoku()){next.completed=true;next.retained=true;next.endedAt=next.startedAt;}
         ReplayFiles.validate(next);
@@ -266,17 +309,25 @@ public final class ReplayController {
         if(!outgoing.retained&&!outgoing.completed&&!outgoing.pinned&&!failedSaves.containsKey(outgoing.id))try{library.discard(outgoing);}catch(java.io.IOException failure){reportLibraryError(failure);}
         rotateLibrary();owner.check();refreshStatus();live.requestFocusInWindow();
     }
+    private static boolean replayNavigation(Component component){
+        if(component instanceof JMenuItem && Boolean.TRUE.equals(((JMenuItem)component).getClientProperty("hodoku.replay.navigation")))return true;
+        Component[] children=component instanceof JMenu?((JMenu)component).getMenuComponents()
+                :component instanceof JMenuBar||component instanceof JPopupMenu?((Container)component).getComponents():new Component[0];
+        for(Component child:children)if(replayNavigation(child))return true;
+        return false;
+    }
     private void disableMenus(Component component){
-        if(component instanceof AbstractButton){AbstractButton button=(AbstractButton)component;menuStates.put(button,button.isEnabled());button.setEnabled(false);}
+        if(component instanceof AbstractButton){AbstractButton button=(AbstractButton)component;menuStates.put(button,button.isEnabled());button.setEnabled(button.isEnabled()&&replayNavigation(component));}
         if(component instanceof JMenu)for(Component child:((JMenu)component).getMenuComponents())disableMenus(child);
         else if(component instanceof Container)for(Component child:((Container)component).getComponents())disableMenus(child);
     }
     public void openViewer(ReplaySession selected){
         if(viewer!=null)return;
         if(error!=null){retrySaves();if(error!=null)return;}
+        live.cancelChainTranscriptionForReplayViewing();
         priorFocus=KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();priorGlass=owner.getGlassPane();
         viewer=new ReplayViewer(this,selected);
-        replayOverlay=new JPanel(new BorderLayout()){@Override public void doLayout(){if(viewer!=null){Component area=owner.replayArea();viewer.setBounds(SwingUtilities.convertRectangle(area.getParent(),area.getBounds(),this));viewer.revalidate();}}};
+        replayOverlay=new JPanel(new BorderLayout()){@Override public void doLayout(){if(viewer!=null){Component area=owner.replayArea();viewer.setBounds(SwingUtilities.convertRectangle(area.getParent(),area.getBounds(),this));viewer.validate();}}};
         replayOverlay.addComponentListener(new ComponentAdapter(){@Override public void componentResized(ComponentEvent event){replayOverlay.doLayout();}});
         replayOverlay.setOpaque(false);replayOverlay.addMouseListener(new MouseAdapter(){});replayOverlay.addMouseMotionListener(new MouseMotionAdapter(){});replayOverlay.add(viewer);
         owner.setGlassPane(replayOverlay);replayOverlay.setVisible(true);replayOverlay.doLayout();viewer.requestFocusInWindow();
