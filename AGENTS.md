@@ -29,6 +29,8 @@
 
 ## Shared replay protocol
 
+- Current accepted contract: `HRPL-FRAMEWORK-20261013-M2`, exact four-contract hashes at commit `9b6ec58c47024cfaf8a96dbaa678fc6ba2448ae1`. Read `docs/replay-protocol/acknowledgements/M2-20261013.md` for the matching Windows/Mac ACK and remaining application checks. Keep the accepted candidate bytes immutable; append evidence separately. Agreement does not close Windows GUI or final return-file acceptance. Older pending/unimplemented descriptions below are historical where superseded by this record.
+
 - Before changing replay recording, encoding, overlay semantics, rendering, re-saving or branching, read `docs/replay-protocol/README.md`, the candidate specification, accepted amendments and this endpoint's declared capabilities. The initial initiative is pending Windows acknowledgement; do not present a draft as a bilateral agreement.
 - Follow the accepted shared contract. Prepare a protocol change proposal, old-reader behavior, declared losses and synthetic fixtures before changing shared semantics. Prefer a protocol PR to `LoveMu-498/hodoku-macos`; when GitHub is unreachable, exchange a proposal with its baseline hash and obtain explicit acknowledgement. Actual commits, pushes and PR creation still require current authorization.
 - Preserve existing tag meanings. Verify read, display, direct re-save, edited recapture and branching separately. A shared envelope version does not establish compatibility. Record real receipt, return, acknowledgement and persistent-instruction adoption; local simulations never count as a completed bilateral workflow.

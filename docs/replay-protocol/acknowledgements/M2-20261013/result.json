@@ -1,0 +1,29 @@
+{
+  "all_save_bytes_equal_original": true,
+  "candidate_commit": "9b6ec58c47024cfaf8a96dbaa678fc6ba2448ae1",
+  "candidate_id": "HRPL-FRAMEWORK-20261013-M2",
+  "environment": "macOS 27.2 arm64; Temurin 21.0.12.1+1; Java 8 source target",
+  "fixture_bytes": 32498,
+  "fixture_sha256": "5e9bb95a321819db691a69bb9c87465140adea280b0b9d983ab589f9063b2113",
+  "headless_checks": 54,
+  "mac_protocol_decision": "ACK_SAME_HASHES",
+  "native_gui_checks_including_headless": 77,
+  "native_window_scope": "visible Swing MainFrame; programmatic next/previous buttons and controller branch; window paint images",
+  "physical_mouse_tested": false,
+  "product_source_changed": false,
+  "protocol_amendment": false,
+  "remaining": [
+    "Windows actual window/display/button acceptance",
+    "Windows reread of this exact returned Windows file",
+    "Mac reread of original Mac fixture after Windows actual direct save",
+    "Windows evidence that current newly recorded important MT result is preserved; legacy missing evidence remains partial"
+  ],
+  "save_paths": [
+    "ReplayFiles.exportFile",
+    "ReplayFiles.exportFrameworkFile",
+    "ReplayStore.write"
+  ],
+  "source_files_match_original_M2_source_hashes": true,
+  "windows_gui_tested_by_mac": false,
+  "windows_receipt_comment": 6144641151
+}

@@ -1,0 +1,12 @@
+{
+  "evidence_for": "M2-20261013",
+  "files": {
+    ".gitattributes": "c3ddf55f27c266169a33bb6cf96c7fdc8f012ba2a8c43eaa51274f108031270d",
+    "RESULTS.md": "1ab21137fad2599807714f6e372fb025244896bf63d89a5252e40fefeb44c9f2",
+    "ReplayWindowsM2ReceiptProbe.java": "f920a2064ba04fe1c353d0e78b283eb2a411a3e8554a3ca317a26c8517953d8c",
+    "actual-mac-window-frame-0.png": "dd333f97532e30ac74ace17eff41e1e5ee9a09d294f8ccde435f224f6b74fba1",
+    "actual-mac-window-frame-1.png": "809c769cbe29e29e988a246b86e7f3c4422265796429bf1a052604ecef6d1e8b",
+    "mac-returned-windows-m2.hrep": "5e9bb95a321819db691a69bb9c87465140adea280b0b9d983ab589f9063b2113",
+    "result.json": "9416d9656a73114a8f1cd85ca27a1fe3e79267dde073e04f707d1f1374598827"
+  }
+}
