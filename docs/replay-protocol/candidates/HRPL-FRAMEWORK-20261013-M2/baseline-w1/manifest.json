@@ -1,0 +1,48 @@
+{
+  "baseline_commit": "baf913908703a36c479a4da69e764859211c6008",
+  "baseline_contract_sha256s": {
+    "CONVERGENCE.md": "27c9815acf6a7662d913cf3b133fa8000e1456e9f399634de40d282200337e32",
+    "INITIATIVE.md": "e26c5e04861da737e13f9ac92037394c37f6500c901de73301cf982eb840c24b",
+    "SPEC.md": "9eb57e8cfc2be1b6dd777885bc875010d415d7a76754ef392d161854d764edbc"
+  },
+  "candidate_contract_sha256s": {
+    "CONVERGENCE.md": "a23c42224be7214d902b346f854a3b6ca4facf546f01abcc10ada97d5363854e",
+    "FRAMEWORK.md": "e11bd73eb063ae0ce9991a4b2a70086f5e29e646c98088b367fe49bec1b3eeb7",
+    "INITIATIVE.md": "e26c5e04861da737e13f9ac92037394c37f6500c901de73301cf982eb840c24b",
+    "SPEC.md": "3f4d4a493e32fb18bb438320a5d271432a7642f127520e94b4a4e815bdf6987f"
+  },
+  "files": {
+    "CONVERGENCE.md": "a23c42224be7214d902b346f854a3b6ca4facf546f01abcc10ada97d5363854e",
+    "FRAMEWORK.md": "e11bd73eb063ae0ce9991a4b2a70086f5e29e646c98088b367fe49bec1b3eeb7",
+    "INITIATIVE.md": "e26c5e04861da737e13f9ac92037394c37f6500c901de73301cf982eb840c24b",
+    "MATRIX.md": "4105fd7d384b534ffe68db868cfaa1ad828358b85cc423101b38e501440140c3",
+    "README.md": "be84685c3b008e4f0eb81eaf40a00cb068c2aa1a3d61a30a7721587967b7abd5",
+    "SPEC.md": "3f4d4a493e32fb18bb438320a5d271432a7642f127520e94b4a4e815bdf6987f",
+    "fixtures/all-content.hrep": "82577e607ffc04e44330eeeef4596c6ad924a65081bf380847d0dd049da4bd94",
+    "fixtures/all-content.json": "3f4a5879eec7bd935b6009f5e72ccaef63209056680b7c53e89375d134bbae3a",
+    "fixtures/duplicate-key.hrep": "f39a63966ce517bf434ed70e8529308a6ae63930630257393f00564c96cf7a59",
+    "fixtures/expected.json": "7e68e97ed9417bfd8c108fb7f2ac91a23eb287f9daf2ee7e0da2b8c673dc588b",
+    "fixtures/group-return.hrep": "c2d59de3f5144b3a821d900b63de79d3a7a1525a3f0ffd356384534abb36a363",
+    "fixtures/invalid-board.hrep": "769d6dcf6012d5cf5cda30f0f87ad1d1694001d77d486308a1f091026a53af86",
+    "fixtures/invalid-coordinate.hrep": "984db80cea421b1310b93b86eb9c4ce15db8c3762caca395a3f7ab79a3b5f4df",
+    "fixtures/invalid-native.hrep": "1992a0bc46e0cb543f55bc9b7fee3f844f69291412e2f45743bf6322571c4366",
+    "fixtures/invalid-preview.hrep": "3630860b6b681fef296446eb6de73168394171cee3cd2b9ac52021cd0fe5bd66",
+    "fixtures/mac-o11-hmx5.hrep": "135dae712b01125d37b396a9f336f64dafaf4a9a8a666b15d18efec27952c863",
+    "fixtures/noncanonical.hrep": "8c135e7ba0de7ad024a369ba1ab20c85d03e2a30d4b3e1687108f5ac68aac6d1",
+    "fixtures/noninteger.hrep": "659bdb53d5481b31dbee274620381028912f6678920a477172e7ae4a2d7fea93",
+    "fixtures/oversize-declared.hrep": "04d2fd530a0fe46b46cdbdb7631f0111c7566e6d5b888a2211fdaf0f136e3a69",
+    "fixtures/preview-carrier.hrep": "835499d2c0bd660f61a83cec76c8ced79c1234d3cabda233faf2e8a3fd8fb29f",
+    "fixtures/results.json": "ca859fc3f5c5527f2a2e12d6b58347855ff499e630a93855c6dde82fb646632b",
+    "fixtures/stale-binding.hrep": "5d695c0b887d365f4ea067e25615992b27b6c3dfc2caa056cbc530fbb6bf6d91",
+    "fixtures/time-order.hrep": "5120bedddbec263b7dfb6fc3a6da14675f2227eaf32b907d0696d627b6cd2292",
+    "fixtures/truncated.hrep": "4da9f96856e646cc26163505caf4ba967d2896865ffb8825fb6e8458d6780a59",
+    "fixtures/unicode-overlimit.hrep": "c10e83f82e9ec5b033e67c220806fa28cc1208b304446266831dfc747a24ca29",
+    "fixtures/unknown-important.hrep": "3ea93185a9d763168ca5de5ad86e79ada968a8af090b6385b6d2aae7c106cef9",
+    "fixtures/unknown-required.hrep": "0453206c502b812d8ac24c59b802fd417be1921ffe10d1e2d3aaf96adea22e40",
+    "fixtures/windows-o11-return.hrep": "a9b5c6cf3502afa23c3007348127700c7798f6703c93463872f3ac17395951a3",
+    "fixtures/wrong-version.hrep": "e9b4b1c0c3a4404e24fccf5d47896a766b4bbe6d2fbcb28d2c06d119a8ccfe2d",
+    "replay_framework_candidate.py": "5b881446de92fc27cce95082370283c10a4d09a7cccede5d998ce4023e9e6fec"
+  },
+  "package_id": "HRPL-FRAMEWORK-20261013-W1",
+  "status": "windows-accepted-proposal-awaiting-mac"
+}

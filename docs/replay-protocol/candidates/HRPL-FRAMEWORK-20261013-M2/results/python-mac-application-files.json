@@ -1,0 +1,98 @@
+{
+  "scope": "independent Python reading actual Java application exports; not Windows application execution",
+  "results": [
+    {
+      "file": "java-codec-long-label.hrep",
+      "profile": "HRPL-FRAME/0.2",
+      "frames": 3,
+      "sha256": "5ca81ad56116be9033945f284bf5886149a0ef5a3c95b9074a31e64851278518",
+      "bytes": 71502,
+      "notices": [],
+      "result": "PASS"
+    },
+    {
+      "file": "mac-long-description.hrep",
+      "profile": "HRPL-FRAME/0.2",
+      "frames": 4,
+      "sha256": "3d82336b8a79791b7f756bbfcc0f4890c3b8fdc0b76a6d7173d8580358e62acf",
+      "bytes": 1329612,
+      "notices": [
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK",
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK",
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK",
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK"
+      ],
+      "result": "PASS"
+    },
+    {
+      "file": "mac-modified.hrep",
+      "profile": "HRPL-FRAME/0.2",
+      "frames": 3,
+      "sha256": "8108594925952a9faafd8e555c4efc24640b84c96a9245bce141c830a242cd64",
+      "bytes": 439035,
+      "notices": [
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK",
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK",
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK"
+      ],
+      "result": "PASS"
+    },
+    {
+      "file": "mac-native-proof-frames.hrep",
+      "profile": "HRPL-FRAME/0.2",
+      "frames": 3,
+      "sha256": "9efb71250914b6c7ffa81bfdaad4f764d3351562dd5fbee4705abe80ec9d1861",
+      "bytes": 439537,
+      "notices": [
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK",
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK",
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK"
+      ],
+      "result": "PASS"
+    },
+    {
+      "file": "mac-native-return.hrep",
+      "profile": "HRPL-FRAME/0.2",
+      "frames": 3,
+      "sha256": "9efb71250914b6c7ffa81bfdaad4f764d3351562dd5fbee4705abe80ec9d1861",
+      "bytes": 439537,
+      "notices": [
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK",
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK",
+        "UNKNOWN_OPTIONAL:mac-native-view",
+        "PREVIEW_FALLBACK"
+      ],
+      "result": "PASS"
+    },
+    {
+      "file": "mac-noncanonical.hrep",
+      "profile": "HRPL-FRAME/0.1",
+      "frames": 3,
+      "sha256": "8c135e7ba0de7ad024a369ba1ab20c85d03e2a30d4b3e1687108f5ac68aac6d1",
+      "bytes": 19251,
+      "notices": [],
+      "result": "PASS"
+    },
+    {
+      "file": "mac-w1-unchanged.hrep",
+      "profile": "HRPL-FRAME/0.1",
+      "frames": 3,
+      "sha256": "82577e607ffc04e44330eeeef4596c6ad924a65081bf380847d0dd049da4bd94",
+      "bytes": 5964,
+      "notices": [],
+      "result": "PASS"
+    }
+  ]
+}

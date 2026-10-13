@@ -1,0 +1,24 @@
+{
+  "kind": "actual-tested-local-source-files",
+  "sha256": {
+    "src/intl/MainFrame.properties": "d6e5756775ec8a6393b23ff4f0a353a5b8f5e42ec0c3d7a4ac13ecb7a2a526f8",
+    "src/intl/MainFrame_de.properties": "f2a2b6e8a9baab3f7d3af37b391505233ac4b98b0b8af72ba6b0699d2723af8a",
+    "src/intl/MainFrame_zh.properties": "ef15f21eef63784ea6db19030f855588969b3a067f62d9a2f29fbce7254235ba",
+    "src/sudoku/ReplayController.java": "c63d4a9954e4530c0e2fdfd038512910bd36ed678472d486c3a69bd1414e6cd8",
+    "src/sudoku/ReplayFileActions.java": "29be766969a6465c854be30694adf088b02ccf5fb21d69c5ab7bcaae8ea25aef",
+    "src/sudoku/ReplayFiles.java": "30b8b4529ef3314209b25c568dff3147cb3c9f9fe703d80d520d8d8708bd6948",
+    "src/sudoku/ReplayFrame.java": "5bcd97f17c8f51b3b2836979070a0a98d575b5b44f434c44d775710679ab01f5",
+    "src/sudoku/ReplayFrameCapture.java": "6ebde01850f026d952a4052e4b0e0557eb90778fda41cfa99d273d2b82d10c82",
+    "src/sudoku/ReplayFrameCodec.java": "71f8e212b02e0ca14d33f005ce7d7dfb9003a958263bec087e2bdc6e81028f73",
+    "src/sudoku/ReplayFrameRenderer.java": "c50aa0757f27574a8c57ba925ed596e158c30578b2fba69ed3bc19e7fa5c7c66",
+    "src/sudoku/ReplayFramework.java": "2d9c3c8451d4f65cd9c1b9215ff8a01b3e38def77ff30c20615b2b7f9b237f36",
+    "src/sudoku/ReplaySession.java": "2b6194397af971bdf0f578923fa3a2b0103b519b56384abc151b6f918b0c6231",
+    "src/sudoku/ReplayStore.java": "2412a388e3c7a52fbdfd4038df70cd3efed3cb1662d1c28aad3ea6bc51788dd3",
+    "src/sudoku/ReplayViewer.java": "7203cf00364909e45b53dddadb3e7e60af590564785f4ff6a5122ee3c6d50b1c",
+    "src/sudoku/SudokuPanel.java": "1d806103f61cb21ecfcce1fde41ae75e5c43187311e6d42a466032777d652fc0",
+    "test/sudoku/ReplayFrameCaptureProbe.java": "cb60a7bfed28474e0eb81ec0882c944693d5491a5e635858c932a8e49e733499",
+    "test/sudoku/ReplayFrameCodecProbe.java": "0664d2966155e34b967c756b721bf8a8253149c1c462f1e54e0218a663b56ac2",
+    "test/sudoku/ReplayFrameRendererProbe.java": "c41c5c556162a54a0b05bfb236558dc2c730c9cb62434cbc7baae9679560fcf1",
+    "test/sudoku/ReplayFrameworkApplicationProbe.java": "e4b2c6441182f3097434effb46d6b0125142933845cfef6020426f8bc140baf3"
+  }
+}

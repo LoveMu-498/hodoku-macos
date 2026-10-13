@@ -1,0 +1,3 @@
+# Protocol evidence is byte-addressed; preserve original W1 CRLF and every fixture.
+* -text
+baseline-w1/manifest.json whitespace=cr-at-eol
